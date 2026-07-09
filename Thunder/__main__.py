@@ -31,7 +31,7 @@ from Thunder.utils.canonical_files import drain_background_touch_tasks
 from Thunder.utils.logger import logger
 from Thunder.utils.messages import MSG_ADMIN_RESTART_DONE
 from Thunder.utils.rate_limiter import rate_limiter, request_executor
-from Thunder.utils.tokens import cleanup_expired_tokens
+
 from Thunder.vars import Var
 
 
@@ -215,9 +215,6 @@ async def start_services():
             ping_server(), name="keepalive_task"
         )
         print("   ✓ Keep-alive service started")
-        token_cleanup_task = asyncio.create_task(
-            schedule_token_cleanup(), name="token_cleanup_task"
-        )
 
     except Exception as e:
         logger.error(f"   ✖ Failed to start Web Server: {e}", exc_info=True)
@@ -260,8 +257,7 @@ async def start_services():
 
     background_tasks = [
         request_executor_task,
-        keepalive_task,
-        token_cleanup_task
+        keepalive_task
     ]
 
     try:
@@ -304,17 +300,6 @@ async def start_services():
         except Exception as e:
             logger.error("Error during database cleanup", exc_info=True)
 
-
-async def schedule_token_cleanup():
-    while True:
-        try:
-            await asyncio.sleep(3 * 3600)
-            await cleanup_expired_tokens()
-        except asyncio.CancelledError:
-            logger.debug("schedule_token_cleanup cancelled cleanly.")
-            break
-        except Exception as e:
-            logger.error(f"Token cleanup error: {e}", exc_info=True)
 
 if __name__ == '__main__':
     try:

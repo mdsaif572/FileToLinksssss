@@ -149,6 +149,11 @@ async def list_tokens() -> List[Dict[str, Any]]:
         return []
 
 async def cleanup_expired_tokens() -> int:
+    """
+    Manual cleanup for expired tokens.
+    NOTE: MongoDB TTL index on `expires_at` handles automatic cleanup.
+    This function is retained for manual/admin use if needed.
+    """
     try:
         current_time = datetime.utcnow()
         logger.debug("Cleaning up expired tokens")

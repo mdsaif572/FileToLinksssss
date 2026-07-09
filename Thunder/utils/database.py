@@ -5,12 +5,29 @@ from typing import Any, Dict, Optional
 from pymongo import AsyncMongoClient
 from pymongo.asynchronous.collection import AsyncCollection
 from pymongo.errors import DuplicateKeyError
+from pymongo.read_preferences import (
+    Primary, PrimaryPreferred, Secondary, SecondaryPreferred, Nearest
+)
 from Thunder.vars import Var
 from Thunder.utils.logger import logger
 
 class Database:
     def __init__(self, uri: str, database_name: str, *args, **kwargs):
-        self._client = AsyncMongoClient(uri, *args, **kwargs)
+        self._client = AsyncMongoClient(
+            uri,
+            maxPoolSize=Var.MONGO_MAX_POOL_SIZE,
+            minPoolSize=Var.MONGO_MIN_POOL_SIZE,
+            connectTimeoutMS=Var.MONGO_CONNECT_TIMEOUT_MS,
+            serverSelectionTimeoutMS=Var.MONGO_SERVER_SELECTION_TIMEOUT_MS,
+            read_preference={
+                "primary": Primary(),
+                "primaryPreferred": PrimaryPreferred(),
+                "secondary": Secondary(),
+                "secondaryPreferred": SecondaryPreferred(),
+                "nearest": Nearest(),
+            }.get(Var.MONGO_READ_PREFERENCE, SecondaryPreferred()),
+            *args, **kwargs
+        )
         self.db = self._client[database_name]
         self.col: AsyncCollection = self.db.users
         self.banned_users_col: AsyncCollection = self.db.banned_users
@@ -48,14 +65,14 @@ class Database:
                 await self._deduplicate_users()
                 await self.col.create_index("id", unique=True)
             await self.token_col.create_index("expires_at", expireAfterSeconds=0)
-            await self.token_col.create_index("activated")
             await self.restart_message_col.create_index("message_id", unique=True)
             await self.restart_message_col.create_index("timestamp", expireAfterSeconds=3600)
             await self.files_col.create_index("file_unique_id", unique=True)
             await self.files_col.create_index("public_hash", unique=True)
             await self.files_col.create_index("canonical_message_id", unique=True)
             await self.files_col.create_index("created_at")
-            await self.files_col.create_index("last_seen_at")
+            await self.token_col.create_index([("user_id", 1), ("activated", 1), ("expires_at", 1)])
+            await self.files_col.create_index([("last_seen_at", -1), ("seen_count", -1)])
             await self.file_ingest_locks_col.create_index("expires_at", expireAfterSeconds=0)
 
             logger.debug("Database indexes ensured.")
@@ -117,18 +134,26 @@ class Database:
 
     async def get_regular_users_count(self) -> int:
         try:
-            auth_ids = await self.authorized_users_col.distinct("user_id")
-            return await self.col.count_documents({"id": {"$nin": auth_ids}})
+            pipeline = [
+                {
+                    "$lookup": {
+                        "from": "authorized_users",
+                        "localField": "id",
+                        "foreignField": "user_id",
+                        "as": "auth"
+                    }
+                },
+                {"$match": {"auth": {"$size": 0}}},
+                {"$count": "count"}
+            ]
+            result = await self.col.aggregate(pipeline, allowDiskUse=True).to_list(length=1)
+            return result[0]["count"] if result else 0
         except Exception as e:
             logger.error(f"Error in get_regular_users_count: {e}", exc_info=True)
             return 0
 
     async def get_all_users(self):
-        try:
-            return self.col.find({})
-        except Exception as e:
-            logger.error(f"Error in get_all_users: {e}", exc_info=True)
-            return self.col.find({"_id": {"$exists": False}})
+        return self.col.find({}, {"id": 1, "join_date": 1, "_id": 0})
 
     async def get_authorized_users_cursor(self):
         try:

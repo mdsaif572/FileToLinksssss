@@ -67,6 +67,12 @@ class Var:
         logger.critical("DATABASE_URL is required")
         raise ValueError("DATABASE_URL is required")
 
+    MONGO_MAX_POOL_SIZE: int = int(os.getenv("MONGO_MAX_POOL_SIZE", "200"))
+    MONGO_MIN_POOL_SIZE: int = int(os.getenv("MONGO_MIN_POOL_SIZE", "20"))
+    MONGO_CONNECT_TIMEOUT_MS: int = int(os.getenv("MONGO_CONNECT_TIMEOUT_MS", "5000"))
+    MONGO_SERVER_SELECTION_TIMEOUT_MS: int = int(os.getenv("MONGO_SERVER_SELECTION_TIMEOUT_MS", "10000"))
+    MONGO_READ_PREFERENCE: str = os.getenv("MONGO_READ_PREFERENCE", "secondaryPreferred")
+
     MAX_BATCH_FILES: int = int(os.getenv("MAX_BATCH_FILES", "50"))
 
     CHANNEL: bool = str_to_bool(os.getenv("CHANNEL", "False"))
