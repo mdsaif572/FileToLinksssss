@@ -9,7 +9,7 @@
 
 <p align="center">
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.13%2B-blue?style=for-the-badge&logo=python" alt="Python Version"></a>
-  <a href="https://github.com/Mayuri-Chan/pyrofork"><img src="https://img.shields.io/badge/Pyrofork-red?style=for-the-badge" alt="Pyrofork"></a>
+  <a href="https://github.com/rjriajul/wzgram"><img src="https://img.shields.io/badge/WZGram-blue?style=for-the-badge" alt="WZGram"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/fyaz05/FileToLink?style=for-the-badge&color=green" alt="License"></a>
   <a href="https://t.me/Thunder_Updates"><img src="https://img.shields.io/badge/Telegram-Channel-blue?style=for-the-badge&logo=telegram" alt="Telegram Channel"></a>
 </p>
@@ -564,7 +564,7 @@ Licensed under the [Apache License 2.0](LICENSE). See the `LICENSE` file for det
 
 ## Acknowledgments
 
-- [Pyrofork](https://github.com/Mayuri-Chan/pyrofork) - Telegram MTProto API Framework
+- [WZGram](https://github.com/rjriajul/wzgram) - Telegram MTProto API Framework (Pyrogram fork)
 - [aiohttp](https://github.com/aio-libs/aiohttp) - Asynchronous HTTP Client/Server
 - [PyMongo](https://github.com/mongodb/mongo-python-driver) - Asynchronous MongoDB Driver
 - [TgCrypto](https://github.com/pyrogram/tgcrypto) - High-performance cryptography library

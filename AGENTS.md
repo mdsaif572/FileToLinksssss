@@ -13,7 +13,7 @@ bash thunder.sh            # Runs python3 update.py && python3 -m Thunder
 
 ```bash
 pip install -r requirements.txt
-# aiohttp, cloudscraper, Jinja2, pyrofork, pymongo, psutil, python-dotenv, speedtest-cli, tgcrypto, uvloop==0.21.0
+# aiohttp, cloudscraper, Jinja2, wzgram, pymongo, psutil, python-dotenv, speedtest-cli, tgcrypto, uvloop==0.21.0
 ```
 
 ## Project Structure
