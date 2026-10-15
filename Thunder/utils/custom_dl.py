@@ -16,43 +16,63 @@ from Thunder.vars import Var
 
 _MSG_CACHE_TTL = 300  # 5 minutes
 _MSG_CACHE_MAX_SIZE = 500
+_GLOBAL_MSG_CACHE: OrderedDict[int, Tuple[float, Message]] = OrderedDict()
+_MSG_LOCK = asyncio.Lock()
 
 
 class ByteStreamer:
-    __slots__ = ('client', 'chat_id', '_msg_cache')
+    __slots__ = ('client', 'chat_id')
 
     def __init__(self, client: Client) -> None:
         self.client = client
         self.chat_id = int(Var.BIN_CHANNEL)
-        self._msg_cache: OrderedDict[int, Tuple[float, Message]] = OrderedDict()
 
     async def get_message(self, message_id: int) -> Message:
         now = time.time()
-        if message_id in self._msg_cache:
-            ts, message = self._msg_cache[message_id]
-            if now - ts < _MSG_CACHE_TTL:
-                self._msg_cache.move_to_end(message_id)
-                return message
-            self._msg_cache.pop(message_id, None)
+        async with _MSG_LOCK:
+            if message_id in _GLOBAL_MSG_CACHE:
+                ts, message = _GLOBAL_MSG_CACHE[message_id]
+                if now - ts < _MSG_CACHE_TTL:
+                    _GLOBAL_MSG_CACHE.move_to_end(message_id)
+                    return message
+                _GLOBAL_MSG_CACHE.pop(message_id, None)
 
-        while True:
+        fetch_client = self.client
+        try:
+            from Thunder.bot import StreamBot
+            if StreamBot and fetch_client is not StreamBot:
+                fetch_client = StreamBot
+        except Exception:
+            pass
+
+        message = None
+        for attempt in range(5):
             try:
-                message = await self.client.get_messages(self.chat_id, message_id)
+                message = await fetch_client.get_messages(self.chat_id, message_id)
                 break
             except FloodWait as e:
-                logger.debug(f"FloodWait: get_message, sleep {e.value}s")
+                logger.warning(f"FloodWait on get_messages: sleep {e.value}s")
                 await asyncio.sleep(e.value)
             except Exception as e:
-                logger.debug(f"Error fetching message {message_id}: {e}", exc_info=True)
-                raise FileNotFound(f"Message {message_id} not found") from e
+                logger.debug(f"Error fetching message {message_id} with primary: {e}")
+                if fetch_client is not self.client:
+                    try:
+                        message = await self.client.get_messages(self.chat_id, message_id)
+                        break
+                    except Exception:
+                        pass
+                if attempt == 4:
+                    raise FileNotFound(f"Message {message_id} not found") from e
+                await asyncio.sleep(0.5)
 
         if not message or not message.media:
             raise FileNotFound(f"Message {message_id} not found")
 
-        self._msg_cache[message_id] = (now, message)
-        self._msg_cache.move_to_end(message_id)
-        while len(self._msg_cache) > _MSG_CACHE_MAX_SIZE:
-            self._msg_cache.popitem(last=False)
+        async with _MSG_LOCK:
+            _GLOBAL_MSG_CACHE[message_id] = (now, message)
+            _GLOBAL_MSG_CACHE.move_to_end(message_id)
+            while len(_GLOBAL_MSG_CACHE) > _MSG_CACHE_MAX_SIZE:
+                _GLOBAL_MSG_CACHE.popitem(last=False)
 
         return message
 

@@ -226,6 +226,30 @@ async def _serve_media_response(
             headers=headers
         )
 
+    # Initialize the generator and pre-fetch the first chunk BEFORE committing headers.
+    # This guarantees that MTProto connection is established and data is ready,
+    # preventing Heroku H15 Idle Connection (55s) timeouts before data arrives.
+    stream_gen = streamer.stream_file(
+        media_ref,
+        offset=start,
+        limit=content_length,
+        fallback_message_id=fallback_message_id,
+        on_fallback_message=on_fallback_message
+    )
+
+    first_chunk = None
+    try:
+        first_chunk = await stream_gen.__anext__()
+    except StopAsyncIteration:
+        pass
+    except Exception as e:
+        work_loads[client_id] -= 1
+        logger.error(f"Failed to fetch initial chunk for {filename}: {e}", exc_info=True)
+        raise web.HTTPServiceUnavailable(
+            text="Media stream temporarily unavailable. Please retry shortly.",
+            headers={"Retry-After": "2", **CORS_HEADERS}
+        )
+
     response = web.StreamResponse(
         status=206 if range_header else 200,
         headers=headers
@@ -236,28 +260,22 @@ async def _serve_media_response(
         bytes_sent = 0
         bytes_to_skip = start % CHUNK_SIZE
 
-        async for chunk in streamer.stream_file(
-            media_ref,
-            offset=start,
-            limit=content_length,
-            fallback_message_id=fallback_message_id,
-            on_fallback_message=on_fallback_message
-        ):
+        if first_chunk is not None:
             if bytes_to_skip > 0:
-                if len(chunk) <= bytes_to_skip:
-                    bytes_to_skip -= len(chunk)
-                    continue
-                chunk = chunk[bytes_to_skip:]
-                bytes_to_skip = 0
+                if len(first_chunk) > bytes_to_skip:
+                    first_chunk = first_chunk[bytes_to_skip:]
+                    bytes_to_skip = 0
+                else:
+                    bytes_to_skip -= len(first_chunk)
+                    first_chunk = b""
 
-            remaining = content_length - bytes_sent
-            if len(chunk) > remaining:
-                chunk = chunk[:remaining]
-
-            if chunk:
+            if first_chunk:
+                remaining = content_length - bytes_sent
+                if len(first_chunk) > remaining:
+                    first_chunk = first_chunk[:remaining]
                 try:
-                    await response.write(chunk)
-                    bytes_sent += len(chunk)
+                    await response.write(first_chunk)
+                    bytes_sent += len(first_chunk)
                 except (
                     ConnectionResetError,
                     ConnectionError,
@@ -268,8 +286,35 @@ async def _serve_media_response(
                     logger.debug(f"Client disconnected early while streaming {filename}")
                     return response
 
-            if bytes_sent >= content_length:
-                break
+        if bytes_sent < content_length:
+            async for chunk in stream_gen:
+                if bytes_to_skip > 0:
+                    if len(chunk) <= bytes_to_skip:
+                        bytes_to_skip -= len(chunk)
+                        continue
+                    chunk = chunk[bytes_to_skip:]
+                    bytes_to_skip = 0
+
+                remaining = content_length - bytes_sent
+                if len(chunk) > remaining:
+                    chunk = chunk[:remaining]
+
+                if chunk:
+                    try:
+                        await response.write(chunk)
+                        bytes_sent += len(chunk)
+                    except (
+                        ConnectionResetError,
+                        ConnectionError,
+                        BrokenPipeError,
+                        ClientConnectionResetError,
+                        asyncio.CancelledError,
+                    ):
+                        logger.debug(f"Client disconnected early while streaming {filename}")
+                        return response
+
+                if bytes_sent >= content_length:
+                    break
     except (
         ConnectionResetError,
         ConnectionError,
