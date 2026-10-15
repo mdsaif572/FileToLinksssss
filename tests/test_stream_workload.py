@@ -59,6 +59,7 @@ class FakeStreamer:
         self.fail = fail
         # the real ByteStreamer exposes the client it streams with
         self.client = types.SimpleNamespace(name="fake")
+        self.chat_ids = []
         self.info = {
             "message_id": 7,
             "file_size": len(data),
@@ -71,7 +72,9 @@ class FakeStreamer:
         return self.info
 
     async def stream_file(self, media_ref, offset=0, limit=0,
-                          fallback_message_id=None, on_fallback_message=None):
+                          fallback_message_id=None, on_fallback_message=None,
+                          chat_id=None):
+        self.chat_ids.append(chat_id)
         if self.fail:
             raise RuntimeError("simulated upstream stream failure")
 
@@ -286,12 +289,14 @@ class BlockingStreamer(FakeStreamer):
         self.release = asyncio.Event()
 
     async def stream_file(self, media_ref, offset=0, limit=0,
-                          fallback_message_id=None, on_fallback_message=None):
+                          fallback_message_id=None, on_fallback_message=None,
+                          chat_id=None):
         await self.release.wait()
         async for chunk in super().stream_file(
             media_ref, offset=offset, limit=limit,
             fallback_message_id=fallback_message_id,
-            on_fallback_message=on_fallback_message
+            on_fallback_message=on_fallback_message,
+            chat_id=chat_id
         ):
             yield chunk
 

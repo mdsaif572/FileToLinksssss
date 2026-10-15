@@ -17,6 +17,7 @@ from Thunder.utils.bot_utils import (filename_from_url, gen_canonical_links,
                                      gen_links, is_admin, log_newusr,
                                      notify_own, reply_user_err)
 from Thunder.utils.canonical_files import (build_file_record,
+                                           choose_bin_channel,
                                            get_file_by_hash,
                                            get_or_create_canonical_file)
 from Thunder.utils.database import db
@@ -46,21 +47,27 @@ BATCH_UPDATE_INTERVAL = 5
 MESSAGE_DELAY = 0.5
 
 
-async def fwd_media(m_msg: Message) -> Optional[Message]:
+async def fwd_media(m_msg: Message, chat_id: Optional[int] = None) -> Optional[Message]:
+    """Store a copy of the media in a storage channel.
+
+    ``chat_id`` picks the channel (``choose_bin_channel`` decides it for each
+    file); without it the primary BIN_CHANNEL is used.
+    """
+    target = int(chat_id) if chat_id else int(Var.BIN_CHANNEL)
     try:
         try:
-            return await m_msg.copy(chat_id=Var.BIN_CHANNEL)
+            return await m_msg.copy(chat_id=target)
         except FloodWait as e:
             await asyncio.sleep(e.value)
-            return await m_msg.copy(chat_id=Var.BIN_CHANNEL)
+            return await m_msg.copy(chat_id=target)
     except Exception as e:
         if "MEDIA_CAPTION_TOO_LONG" in str(e):
             logger.debug(f"MEDIA_CAPTION_TOO_LONG error, retrying without caption: {e}")
             try:
-                return await m_msg.copy(chat_id=Var.BIN_CHANNEL, caption=None)
+                return await m_msg.copy(chat_id=target, caption=None)
             except FloodWait as e:
                 await asyncio.sleep(e.value)
-                return await m_msg.copy(chat_id=Var.BIN_CHANNEL, caption=None)
+                return await m_msg.copy(chat_id=target, caption=None)
         logger.error(f"Error fwd_media copy: {e}", exc_info=True)
         return None
 
@@ -694,6 +701,8 @@ async def handle_url_upload(
     """
     url = (message.text or "").strip()
     file_name = filename_from_url(url)
+    # no file identity before the upload, so the URL decides the channel
+    target_channel = choose_bin_channel(url)
 
     try:
         status_msg = await message.reply_text(
@@ -706,7 +715,7 @@ async def handle_url_upload(
     try:
         try:
             stored_message = await client.send_document(
-                chat_id=int(Var.BIN_CHANNEL),
+                chat_id=target_channel,
                 document=url,
                 file_name=file_name,
                 disable_notification=True
@@ -714,7 +723,7 @@ async def handle_url_upload(
         except FloodWait as e:
             await asyncio.sleep(e.value)
             stored_message = await client.send_document(
-                chat_id=int(Var.BIN_CHANNEL),
+                chat_id=target_channel,
                 document=url,
                 file_name=file_name,
                 disable_notification=True
@@ -730,7 +739,8 @@ async def handle_url_upload(
     record = build_file_record(
         stored_message,
         source_chat_id=message.chat.id if message.chat else None,
-        source_message_id=message.id
+        source_message_id=message.id,
+        bin_channel_id=target_channel
     )
     if not record:
         try:

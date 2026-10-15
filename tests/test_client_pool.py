@@ -68,20 +68,48 @@ class FakeTokenParser:
         return dict(FakeTokenParser.tokens)
 
 
-class CanReadBinChannelTest(unittest.IsolatedAsyncioTestCase):
-    async def test_readable_client_passes(self):
-        client = FakePoolClient("ok")
-        self.assertTrue(await clients_module._can_read_bin_channel(client, "Client ID 1"))
+class ReadableChannelsTest(unittest.IsolatedAsyncioTestCase):
+    def _use_channels(self, *channels):
+        original = Var.BIN_CHANNELS
+        Var.BIN_CHANNELS = list(channels)
+        self.addCleanup(lambda: setattr(Var, "BIN_CHANNELS", original))
 
-    async def test_client_outside_the_channel_fails(self):
+    async def test_readable_client_reports_its_channel(self):
+        self._use_channels(Var.BIN_CHANNEL)
+        client = FakePoolClient("ok")
+        self.assertEqual(
+            await clients_module._readable_channels(client, "Client ID 1"),
+            frozenset({Var.BIN_CHANNEL})
+        )
+
+    async def test_client_outside_every_channel_reports_nothing(self):
+        self._use_channels(Var.BIN_CHANNEL)
         client = FakePoolClient("outsider", can_read=False)
-        self.assertFalse(await clients_module._can_read_bin_channel(client, "Client ID 2"))
+        self.assertEqual(
+            await clients_module._readable_channels(client, "Client ID 2"), frozenset()
+        )
 
     async def test_flood_wait_is_retried(self):
+        self._use_channels(Var.BIN_CHANNEL)
         client = FakePoolClient("floody", flood_wait_times=1)
         with mock.patch.object(clients_module.asyncio, "sleep", new=_instant_sleep):
-            self.assertTrue(await clients_module._can_read_bin_channel(client, "Client ID 3"))
+            await clients_module._readable_channels(client, "Client ID 3")
         self.assertEqual(client.get_chat_calls, 2)
+
+    async def test_a_client_can_serve_only_some_channels(self):
+        second = Var.BIN_CHANNEL - 1
+        self._use_channels(Var.BIN_CHANNEL, second)
+
+        class OnlySecond(FakePoolClient):
+            async def get_chat(self, chat_id):
+                self.get_chat_calls += 1
+                if int(chat_id) == second:
+                    return FakeChat(chat_id)
+                raise ChannelInvalid("not a member")
+
+        client = OnlySecond("partial")
+        readable = await clients_module._readable_channels(client, "Client ID 4")
+        self.assertEqual(readable, frozenset({second}))
 
 
 async def _instant_sleep(_seconds):

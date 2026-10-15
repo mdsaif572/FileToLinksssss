@@ -15,3 +15,7 @@ StreamBot = Client(
 
 multi_clients = {}
 work_loads = {}
+
+# client id -> frozenset of storage-channel ids that client can read. Populated
+# at boot; a file may only be served by a client that administers its channel.
+client_channels = {}

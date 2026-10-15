@@ -119,6 +119,31 @@ CI: `.github/workflows/tests.yml` runs `python -m unittest discover -s tests -t 
 on every push; `dockerize.yml` publishes to GHCR (`ghcr.io/<owner>/<repo>`), no
 Docker Hub secrets required.
 
+## Multiple storage channels
+
+Telegram caps channel administrators at 50, and a bot can only be added to a
+channel as an administrator, so a bot pool larger than that needs more than one
+storage channel:
+
+- `BIN_CHANNEL` is the primary; `BIN_CHANNEL_2`, `BIN_CHANNEL_3`, ... are extras.
+  They parse into `Var.BIN_CHANNELS` (primary first, duplicates dropped) and each
+  is verified per client at boot.
+- Every record stores `bin_channel_id`. `record_bin_channel()` treats records
+  written before this feature as living in the primary, so existing links keep
+  working.
+- A new file goes to `choose_bin_channel(file_unique_id)`: a stable hash, so the
+  same file always lands in the same channel and a re-upload reuses its record.
+- Each pool client's readable channels are kept in `client_channels`;
+  `select_optimal_client(required_channel=...)` only considers clients that
+  administer the file's channel (DC preference and the capacity gate still
+  apply). When nobody is capable the file is still served by the least loaded
+  client and the event is counted as `no_capable_client` in the metrics.
+- Links that do not name a channel (`/{id}?hash=`, `/watch/<hash><id>`) resolve
+  by trying every configured channel, primary first.
+- Operationally: first ~50 bots in `BIN_CHANNEL`, next ~50 in `BIN_CHANNEL_2`.
+  Only a bot that administers a file's channel can stream that file, and the
+  boot log prints the per-channel client counts.
+
 ## File references (streaming)
 
 Telegram file references are bound to the session that fetched the message, and

@@ -6,40 +6,53 @@ import os
 from pyrogram import Client
 from pyrogram.errors import FloodWait
 
-from Thunder.bot import StreamBot, multi_clients, work_loads
+from Thunder.bot import StreamBot, client_channels, multi_clients, work_loads
 from Thunder.utils.config_parser import TokenParser
 from Thunder.utils.logger import logger
 from Thunder.vars import Var
 
-async def _can_read_bin_channel(client, label: str) -> bool:
-    """True when the client can actually read a message from BIN_CHANNEL.
+def _channel_label(channel_id: int) -> str:
+    """Human name for a storage channel: BIN_CHANNEL, BIN_CHANNEL_2, ..."""
+    channels = list(getattr(Var, "BIN_CHANNELS", None) or [Var.BIN_CHANNEL])
+    try:
+        index = channels.index(int(channel_id))
+    except ValueError:
+        return f"channel {channel_id}"
+    return "BIN_CHANNEL" if index == 0 else f"BIN_CHANNEL_{index + 1}"
 
-    A client that cannot has no file reference of its own: its requests would
-    either fail with FILE_REFERENCE_EXPIRED or silently fall back to the primary
-    bot's reference, which Telegram rejects for the same reason. Better to leave
-    it out of the pool than to keep a client that only produces errors.
+
+async def _readable_channels(client, label: str) -> frozenset:
+    """Which storage channels this client can read.
+
+    A client can only read a channel it administers (Telegram has no other way to
+    give a bot access to a channel), so a single channel it cannot read means it
+    can never serve files stored there. A client that cannot read *any* channel
+    has no file reference of its own - its requests would fail with
+    FILE_REFERENCE_EXPIRED or silently borrow the primary bot's - and is left out
+    of the pool entirely.
     """
-    chat = None
-    for _attempt in range(2):
-        try:
-            chat = await client.get_chat(int(Var.BIN_CHANNEL))
-            break
-        except FloodWait as e:
-            await asyncio.sleep(e.value)
-        except Exception as e:
-            logger.warning(
-                f"   ✖ {label} cannot read BIN_CHANNEL ({e}); "
-                "leaving it out of the streaming pool"
-            )
-            return False
+    readable = set()
+    for channel in (getattr(Var, "BIN_CHANNELS", None) or [Var.BIN_CHANNEL]):
+        channel = int(channel)
+        chat = None
+        for _attempt in range(2):
+            try:
+                chat = await client.get_chat(channel)
+                break
+            except FloodWait as e:
+                await asyncio.sleep(e.value)
+            except Exception as e:
+                logger.warning(
+                    f"   ✖ {label} cannot read {_channel_label(channel)} ({e})"
+                )
+                break
 
-    if chat is None:
-        logger.warning(f"   ✖ {label} could not read BIN_CHANNEL; leaving it out")
-        return False
+        if chat is not None:
+            readable.add(channel)
+            print(f"   ✓ {label} can read {_channel_label(channel)}")
+            logger.info(f"   ✓ {label} can read {_channel_label(channel)}")
 
-    print(f"   ✓ {label} can read BIN_CHANNEL")
-    logger.info(f"   ✓ {label} can read BIN_CHANNEL")
-    return True
+    return frozenset(readable)
 
 
 SHUTDOWN_TIMEOUT_SECONDS = 20.0
@@ -88,12 +101,14 @@ async def initialize_clients():
     print("╠══════════════════ INITIALIZING CLIENTS ═══════════════════╣")
     multi_clients[0] = StreamBot
     work_loads[0] = 0
-    if await _can_read_bin_channel(StreamBot, "Primary client"):
+    primary_readable = await _readable_channels(StreamBot, "Primary client")
+    client_channels[0] = primary_readable
+    if primary_readable:
         print("   ✓ Primary client initialized")
     else:
         logger.error(
-            "   ✖ Primary client cannot read BIN_CHANNEL - add it to the channel "
-            "(as admin) or no link will ever stream."
+            "   ✖ Primary client cannot read any storage channel - add it to "
+            "BIN_CHANNEL (as admin) or no link will ever stream."
         )
     try:
         all_tokens = TokenParser().parse_from_env()
@@ -129,7 +144,12 @@ async def initialize_clients():
 
             username = getattr(getattr(client, "me", None), "username", None)
             label = f"Client ID {client_id}" + (f" (@{username})" if username else "")
-            if not await _can_read_bin_channel(client, label):
+            readable = await _readable_channels(client, label)
+            if not readable:
+                logger.warning(
+                    f"   ✖ {label} cannot read any storage channel; "
+                    "leaving it out of the streaming pool"
+                )
                 skipped_clients.append(client_id)
                 try:
                     await client.stop()
@@ -137,6 +157,7 @@ async def initialize_clients():
                     logger.debug(f"Error stopping unusable client {client_id}: {stop_error}")
                 return None
 
+            client_channels[client_id] = readable
             work_loads[client_id] = 0
             print(f"   ◎ {label} started")
             return client_id, client
@@ -157,6 +178,13 @@ async def initialize_clients():
 
     multi_clients.update(dict(clients))
 
+    per_channel = {
+        channel: sorted(
+            client_id for client_id, channels in client_channels.items()
+            if channel in channels
+        )
+        for channel in (getattr(Var, "BIN_CHANNELS", None) or [Var.BIN_CHANNEL])
+    }
     logger.info(
         f"Streaming pool ready: clients {sorted(multi_clients)} "
         f"({len(multi_clients)} usable, {len(skipped_clients)} skipped"
@@ -164,6 +192,10 @@ async def initialize_clients():
            if skipped_clients else "")
         + ")"
     )
+    for channel, client_ids in per_channel.items():
+        logger.info(
+            f"   {_channel_label(channel)} ({channel}): {len(client_ids)} client(s)"
+        )
     
     if len(multi_clients) > 1:
         Var.MULTI_CLIENT = True

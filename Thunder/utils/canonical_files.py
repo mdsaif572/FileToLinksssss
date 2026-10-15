@@ -37,6 +37,25 @@ _flush_task: Optional[asyncio.Task] = None
 _FLUSH_DELAY_SECONDS = 10
 
 
+def choose_bin_channel(file_unique_id: str) -> int:
+    """Which storage channel a file belongs to.
+
+    Stable per file identity, so the same file always lands in the same channel
+    (re-uploads reuse the existing record) while fresh files spread evenly across
+    the configured channels.
+    """
+    channels = list(getattr(Var, "BIN_CHANNELS", None) or [Var.BIN_CHANNEL])
+    if len(channels) == 1:
+        return int(channels[0])
+    digest = hashlib.sha256(f"bin:{file_unique_id}".encode("utf-8")).hexdigest()
+    return int(channels[int(digest, 16) % len(channels)])
+
+
+def record_bin_channel(record: Dict[str, Any]) -> int:
+    """The channel holding a file; records written before multi-channel use the primary."""
+    return int(record.get("bin_channel_id") or Var.BIN_CHANNEL)
+
+
 def _as_utc(value):
     """MongoDB hands back naive datetimes; compare them as UTC."""
     if value is None:
@@ -107,18 +126,21 @@ def build_file_record(
     stored_message: Message,
     *,
     source_chat_id: Optional[int] = None,
-    source_message_id: Optional[int] = None
+    source_message_id: Optional[int] = None,
+    bin_channel_id: Optional[int] = None
 ) -> Optional[Dict[str, Any]]:
     media = get_media(stored_message)
     file_unique_id = get_uniqid(stored_message)
     if not media or not file_unique_id:
         return None
 
+    stored_chat = getattr(getattr(stored_message, "chat", None), "id", None)
     now = datetime.datetime.now(datetime.timezone.utc)
     return {
         "file_unique_id": file_unique_id,
         "public_hash": build_public_hash(file_unique_id),
         "canonical_message_id": stored_message.id,
+        "bin_channel_id": int(bin_channel_id or stored_chat or Var.BIN_CHANNEL),
         "file_id": getattr(media, "file_id", None),
         "file_name": get_fname(stored_message),
         "mime_type": _infer_mime_type(media),
@@ -351,16 +373,17 @@ async def _fetch_canonical_message(record: Dict[str, Any]) -> Optional[Message]:
     if canonical_message_id is None:
         return None
 
+    channel = record_bin_channel(record)
     try:
         try:
             message = await StreamBot.get_messages(
-                chat_id=int(Var.BIN_CHANNEL),
+                chat_id=channel,
                 message_ids=int(canonical_message_id)
             )
         except FloodWait as e:
             await asyncio.sleep(e.value)
             message = await StreamBot.get_messages(
-                chat_id=int(Var.BIN_CHANNEL),
+                chat_id=channel,
                 message_ids=int(canonical_message_id)
             )
     except Exception as e:
@@ -467,11 +490,13 @@ async def file_ingest_lock(file_unique_id: str):
 
 async def get_or_create_canonical_file(
     source_message: Message,
-    copy_media: Callable[[Message], Awaitable[Optional[Message]]]
+    copy_media: Callable[..., Awaitable[Optional[Message]]]
 ) -> Tuple[Optional[Dict[str, Any]], Optional[Message], bool]:
     file_unique_id = get_uniqid(source_message)
     if not file_unique_id:
         return None, None, False
+
+    target_channel = choose_bin_channel(file_unique_id)
 
     async with file_ingest_lock(file_unique_id):
         for _attempt in range(_MAX_INGEST_RETRIES):
@@ -500,14 +525,15 @@ async def get_or_create_canonical_file(
                     schedule_touch_file_record(reusable_record, reused=True)
                     return reusable_record, None, True
 
-                stored_message = await copy_media(source_message)
+                stored_message = await copy_media(source_message, target_channel)
                 if not stored_message:
                     return None, None, False
 
                 record = build_file_record(
                     stored_message,
                     source_chat_id=source_message.chat.id if source_message.chat else None,
-                    source_message_id=source_message.id
+                    source_message_id=source_message.id,
+                    bin_channel_id=target_channel
                 )
                 if not record:
                     return None, stored_message, False

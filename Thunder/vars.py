@@ -11,6 +11,28 @@ load_dotenv("config.env")
 def str_to_bool(val: str) -> bool:
     return val.lower() in ("true", "1", "t", "y", "yes")
 
+def parse_bin_channels(environ, primary: int) -> list:
+    """Every configured storage channel: primary first, extras in key order.
+
+    Telegram caps channel administrators at 50 (bots can only be added to a
+    channel as an administrator), so a large bot pool needs more than one
+    storage channel; files are then spread over them by :func:`choose_bin_channel`.
+    """
+    channels = [int(primary)]
+    for index in range(2, 50):
+        raw = (environ.get(f"BIN_CHANNEL_{index}") or "").strip().strip('"').strip("'")
+        if not raw:
+            continue
+        try:
+            channel = int(raw)
+        except ValueError:
+            logger.warning(f"BIN_CHANNEL_{index} is not an integer id; ignoring it")
+            continue
+        if channel not in channels:
+            channels.append(channel)
+    return channels
+
+
 def str_to_int_set(val: str) -> Set[int]:
     if not val:
         return set()
@@ -42,6 +64,9 @@ class Var:
     if not BIN_CHANNEL:
         logger.critical("BIN_CHANNEL is required")
         raise ValueError("BIN_CHANNEL is required")
+
+    # Optional extra storage channels: BIN_CHANNEL_2, BIN_CHANNEL_3, ...
+    BIN_CHANNELS: list = parse_bin_channels(os.environ, BIN_CHANNEL)
 
     PORT: int = int(os.getenv("PORT", "8080"))
     BIND_ADDRESS: str = os.getenv("BIND_ADDRESS", "0.0.0.0")

@@ -11,12 +11,13 @@ from aiohttp import web
 from aiohttp.client_exceptions import ClientConnectionResetError
 
 from Thunder import __version__, StartTime
-from Thunder.bot import StreamBot, multi_clients, work_loads
+from Thunder.bot import StreamBot, client_channels, multi_clients, work_loads
 from Thunder.server.exceptions import FileNotFound, InvalidHash
 from Thunder.utils.bot_utils import quote_media_name
 from Thunder.utils.canonical_files import (
     PUBLIC_HASH_LENGTH,
     get_file_by_hash,
+    record_bin_channel,
     record_unavailable_reason,
     update_cached_file_id,
 )
@@ -181,7 +182,10 @@ def dc_from_file_id(file_id) -> Optional[int]:
         return None
 
 
-def select_optimal_client(preferred_dc: Optional[int] = None) -> tuple[int, ByteStreamer]:
+def select_optimal_client(
+    preferred_dc: Optional[int] = None,
+    required_channel: Optional[int] = None
+) -> tuple[int, ByteStreamer]:
     if not work_loads:
         raise web.HTTPInternalServerError(
             text=("No available clients to handle the request. "
@@ -206,6 +210,22 @@ def select_optimal_client(preferred_dc: Optional[int] = None) -> tuple[int, Byte
                 "Retry-After": str(OVERLOAD_RETRY_AFTER_SECONDS),
             },
         )
+
+    if required_channel is not None and client_channels:
+        # Telegram only lets a bot read a channel it administers, so a file may
+        # only be served by a client capable of reading that channel.
+        capable = [
+            (cid, load) for cid, load in available_clients
+            if required_channel in client_channels.get(cid, ())
+        ]
+        if capable:
+            available_clients = capable
+        else:
+            metrics.record_error("no_capable_client", f"channel {required_channel}")
+            logger.warning(
+                f"No pool client can read channel {required_channel}; "
+                "serving with the least loaded client instead"
+            )
 
     candidates = available_clients
     if preferred_dc:
@@ -296,7 +316,8 @@ async def _serve_media_response(
     client_id: int,
     media_ref: int | str,
     fallback_message_id: int | None = None,
-    on_fallback_message=None
+    on_fallback_message=None,
+    chat_id: Optional[int] = None
 ):
     file_size = int(file_info.get('file_size', 0) or 0)
     if file_size == 0:
@@ -347,7 +368,8 @@ async def _serve_media_response(
         offset=start,
         limit=content_length,
         fallback_message_id=fallback_message_id,
-        on_fallback_message=on_fallback_message
+        on_fallback_message=on_fallback_message,
+        chat_id=chat_id
     )
 
     first_chunk = None
@@ -648,8 +670,11 @@ async def canonical_media_delivery(request: web.Request):
         if reason:
             raise _unavailable_error(reason, secure_hash)
 
+        file_channel = record_bin_channel(file_record)
         preferred_dc = dc_from_file_id(file_record.get("file_id"))
-        client_id, streamer = select_optimal_client(preferred_dc=preferred_dc)
+        client_id, streamer = select_optimal_client(
+            preferred_dc=preferred_dc, required_channel=file_channel
+        )
         work_loads[client_id] += 1
 
         user_key = caller_key(request)
@@ -690,7 +715,8 @@ async def canonical_media_delivery(request: web.Request):
                     client_id=client_id,
                     media_ref=media_ref,
                     fallback_message_id=fallback_message_id,
-                    on_fallback_message=persist_refreshed_file_id
+                    on_fallback_message=persist_refreshed_file_id,
+                    chat_id=file_channel
                 )
             except (FileNotFound, InvalidHash):
                 work_loads[client_id] -= 1

@@ -44,11 +44,19 @@ async def render_media_page(file_name: str, src: str, requested_action: str | No
 
 async def render_page(message_id: int, secure_hash: str, requested_action: str | None = None) -> str:
     try:
-        try:
-            message = await StreamBot.get_messages(chat_id=int(Var.BIN_CHANNEL), message_ids=message_id)
-        except FloodWait as e:
-            await asyncio.sleep(e.value)
-            message = await StreamBot.get_messages(chat_id=int(Var.BIN_CHANNEL), message_ids=message_id)
+        # Legacy /watch/<hash><id> links do not encode a channel, so look the
+        # message up in each configured channel (primary first).
+        message = None
+        for channel in (getattr(Var, "BIN_CHANNELS", None) or [Var.BIN_CHANNEL]):
+            try:
+                message = await StreamBot.get_messages(
+                    chat_id=int(channel), message_ids=message_id)
+            except FloodWait as e:
+                await asyncio.sleep(e.value)
+                message = await StreamBot.get_messages(
+                    chat_id=int(channel), message_ids=message_id)
+            if message:
+                break
 
         if not message:
             raise InvalidHash("Message not found")

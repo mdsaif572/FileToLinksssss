@@ -49,7 +49,7 @@ def _is_file_reference_error(exc: BaseException) -> bool:
 
 def invalidate_cached_message(message_id: int) -> None:
     """Drop every cached Message for this id so the next read re-fetches it."""
-    for key in [k for k in _GLOBAL_MSG_CACHE if k[1] == message_id]:
+    for key in [k for k in _GLOBAL_MSG_CACHE if k[2] == message_id]:
         _GLOBAL_MSG_CACHE.pop(key, None)
 
 
@@ -81,18 +81,23 @@ class ByteStreamer:
         self,
         message_id: int,
         *,
+        chat_id: Optional[int] = None,
         force_refresh: bool = False,
         preferred_client: Optional[Client] = None
     ) -> Tuple[Message, Client]:
-        """Fetch a BIN_CHANNEL message and report which client fetched it.
+        """Fetch a stored message and report which client fetched it.
 
         A Telegram file reference is only valid for the session that fetched the
         message, so the caller must stream the returned message *with the
-        returned client*. The read is attempted with the client that asked for
-        it first and falls back to the primary bot, because a secondary client
-        may not be a member of BIN_CHANNEL. The cache is keyed by
-        ``(client, message_id)`` and written under the client that performed the
-        fetch, never under the client that merely asked.
+        returned client*. The read is attempted with the client that asked for it
+        first and falls back to the primary bot, because a secondary client may
+        not be a member of that channel. The cache is keyed by
+        ``(client, channel, message_id)`` and written under the client that
+        performed the fetch, never under the client that merely asked.
+
+        ``chat_id`` names the storage channel holding the file. Without it every
+        configured channel is tried in order (primary first), which is how links
+        created before multi-channel support still resolve.
 
         ``force_refresh`` skips the cache, which is what the retry path needs
         after a stale reference was rejected. ``preferred_client`` asks a
@@ -100,14 +105,22 @@ class ByteStreamer:
         client so a rejected reference is not simply reproduced.
         """
         now = time.time()
-        cache_key = (id(self.client), message_id)
+        channels = [int(chat_id)] if chat_id else [
+            int(channel)
+            for channel in (getattr(Var, "BIN_CHANNELS", None) or [self.chat_id])
+        ]
         use_cache = not force_refresh and (
             preferred_client is None or preferred_client is self.client
         )
 
         if use_cache:
             async with _MSG_LOCK:
-                if cache_key in _GLOBAL_MSG_CACHE:
+                # Look the message up in each candidate channel: a link that does
+                # not name its channel can still be served from the cache.
+                for channel in channels:
+                    cache_key = (id(self.client), channel, message_id)
+                    if cache_key not in _GLOBAL_MSG_CACHE:
+                        continue
                     ts, message = _GLOBAL_MSG_CACHE[cache_key]
                     if now - ts < _MSG_CACHE_TTL:
                         _GLOBAL_MSG_CACHE.move_to_end(cache_key)
@@ -124,39 +137,42 @@ class ByteStreamer:
                 fetch_clients.append(candidate)
 
         last_error: Exception | None = None
-        for fetch_client in fetch_clients:
-            for _attempt in range(3):
-                try:
-                    message = await fetch_client.get_messages(self.chat_id, message_id)
-                except FloodWait as e:
-                    logger.warning(f"FloodWait on get_messages: sleep {e.value}s")
-                    await asyncio.sleep(e.value)
-                    continue
-                except Exception as e:
-                    last_error = e
-                    logger.debug(
-                        f"Error fetching message {message_id} with "
-                        f"{type(fetch_client).__name__}: {e}"
-                    )
+        for channel in channels:
+            for fetch_client in fetch_clients:
+                for _attempt in range(3):
+                    try:
+                        message = await fetch_client.get_messages(channel, message_id)
+                    except FloodWait as e:
+                        logger.warning(f"FloodWait on get_messages: sleep {e.value}s")
+                        await asyncio.sleep(e.value)
+                        continue
+                    except Exception as e:
+                        last_error = e
+                        logger.debug(
+                            f"Error fetching message {message_id} from channel {channel} "
+                            f"with {type(fetch_client).__name__}: {e}"
+                        )
+                        break
+
+                    if message and message.media:
+                        async with _MSG_LOCK:
+                            _key = (id(fetch_client), channel, message_id)
+                            _GLOBAL_MSG_CACHE[_key] = (now, message)
+                            _GLOBAL_MSG_CACHE.move_to_end(_key)
+                            while len(_GLOBAL_MSG_CACHE) > _MSG_CACHE_MAX_SIZE:
+                                _GLOBAL_MSG_CACHE.popitem(last=False)
+                        return message, fetch_client
+
+                    last_error = FileNotFound(
+                        f"Message {message_id} has no media in channel {channel}")
                     break
-
-                if message and message.media:
-                    async with _MSG_LOCK:
-                        _key = (id(fetch_client), message_id)
-                        _GLOBAL_MSG_CACHE[_key] = (now, message)
-                        _GLOBAL_MSG_CACHE.move_to_end(_key)
-                        while len(_GLOBAL_MSG_CACHE) > _MSG_CACHE_MAX_SIZE:
-                            _GLOBAL_MSG_CACHE.popitem(last=False)
-                    return message, fetch_client
-
-                last_error = FileNotFound(f"Message {message_id} has no media")
-                break
 
         raise FileNotFound(f"Message {message_id} not found") from last_error
 
-    async def get_message(self, message_id: int, *, force_refresh: bool = False) -> Message:
+    async def get_message(self, message_id: int, *, chat_id: Optional[int] = None,
+                          force_refresh: bool = False) -> Message:
         message, _owner = await self.get_message_with_owner(
-            message_id, force_refresh=force_refresh
+            message_id, chat_id=chat_id, force_refresh=force_refresh
         )
         return message
 
@@ -183,7 +199,8 @@ class ByteStreamer:
         offset: int = 0,
         limit: int = 0,
         fallback_message_id: int | None = None,
-        on_fallback_message: Optional[Callable[[Message], Awaitable[None]]] = None
+        on_fallback_message: Optional[Callable[[Message], Awaitable[None]]] = None,
+        chat_id: Optional[int] = None
     ) -> AsyncGenerator[bytes, None]:
         chunk_size = 1024 * 1024
         chunk_offset = offset // chunk_size
@@ -219,6 +236,7 @@ class ByteStreamer:
                         if isinstance(ref, int):
                             target, stream_client = await self.get_message_with_owner(
                                 ref,
+                                chat_id=chat_id,
                                 force_refresh=force_refresh,
                                 preferred_client=preferred_client
                             )
