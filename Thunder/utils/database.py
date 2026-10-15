@@ -471,6 +471,49 @@ class Database:
             logger.error(f"Error checking ingest claim for {file_unique_id}: {e}", exc_info=True)
             raise
 
+    async def set_file_revoked(
+        self,
+        public_hash: str,
+        revoked: bool = True,
+        *,
+        raise_on_error: bool = False
+    ) -> bool:
+        try:
+            result = await self.files_col.update_one(
+                {"public_hash": public_hash},
+                {
+                    "$set": {
+                        "revoked": revoked,
+                        "revoked_at": datetime.datetime.now(datetime.timezone.utc) if revoked else None
+                    }
+                }
+            )
+            return bool(result.modified_count or result.matched_count)
+        except Exception as e:
+            logger.error(f"Error setting revoked={revoked} for {public_hash}: {e}", exc_info=True)
+            if raise_on_error:
+                raise
+            return False
+
+    async def set_file_expiry(
+        self,
+        public_hash: str,
+        expires_at,
+        *,
+        raise_on_error: bool = False
+    ) -> bool:
+        try:
+            result = await self.files_col.update_one(
+                {"public_hash": public_hash},
+                {"$set": {"expires_at": expires_at}}
+            )
+            return bool(result.modified_count or result.matched_count)
+        except Exception as e:
+            logger.error(f"Error setting expiry for {public_hash}: {e}", exc_info=True)
+            if raise_on_error:
+                raise
+            return False
+
     async def close(self):
         if self._client:
             await self._client.close()

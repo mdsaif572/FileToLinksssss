@@ -19,6 +19,10 @@ from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from Thunder import StartTime, __version__
 from Thunder.bot import StreamBot, multi_clients, work_loads
 from Thunder.utils.bot_utils import get_user, reply
+from Thunder.utils.canonical_files import (PUBLIC_HASH_LENGTH, revoke_file_record)
+from Thunder.utils.messages import (MSG_REVOKE_INVALID, MSG_REVOKE_NOT_FOUND,
+                                    MSG_REVOKE_SUCCESS, MSG_REVOKE_USAGE,
+                                    MSG_UNREVOKE_SUCCESS)
 from Thunder.utils.broadcast import broadcast_message
 from Thunder.utils.database import db
 from Thunder.utils.human_readable import humanbytes
@@ -534,3 +538,62 @@ async def _send_result(message: Message, status_msg: Message, result_text: str, 
 
 def _fmt(value, decimals: int = 2) -> str:
     return f"{float(value):.{decimals}f}"
+
+def _parse_public_hash(message: Message):
+    """Extract a 20-char public hash from a command argument or a full link."""
+    parts = message.text.split(maxsplit=1)
+    raw = parts[1].strip() if len(parts) > 1 else ""
+    if not raw:
+        return None
+    # accept a full /f/<hash>/<name> link as well as a bare hash
+    candidate = raw.split("/f/")[-1].split("/")[0] if "/f/" in raw else raw
+    candidate = candidate.strip().lower()
+    if len(candidate) != PUBLIC_HASH_LENGTH or any(c not in "0123456789abcdef" for c in candidate):
+        return candidate
+    return candidate
+
+
+@StreamBot.on_message(filters.command("revoke") & owner_filter)
+async def revoke_command(client: Client, message: Message):
+    public_hash = _parse_public_hash(message)
+    if not public_hash:
+        await reply(message, text=MSG_REVOKE_USAGE, parse_mode=ParseMode.MARKDOWN)
+        return
+
+    if len(public_hash) != PUBLIC_HASH_LENGTH:
+        await reply(
+            message,
+            text=MSG_REVOKE_INVALID.format(public_hash=public_hash,
+                                           hash_length=PUBLIC_HASH_LENGTH),
+            parse_mode=ParseMode.MARKDOWN)
+        return
+
+    try:
+        revoked = await revoke_file_record(public_hash, revoked=True)
+    except Exception as e:
+        logger.error(f"Error revoking {public_hash}: {e}", exc_info=True)
+        await reply(message, text=MSG_ERROR_GENERIC)
+        return
+
+    text = (MSG_REVOKE_SUCCESS if revoked else MSG_REVOKE_NOT_FOUND).format(
+        public_hash=public_hash)
+    await reply(message, text=text, parse_mode=ParseMode.MARKDOWN)
+
+
+@StreamBot.on_message(filters.command("unrevoke") & owner_filter)
+async def unrevoke_command(client: Client, message: Message):
+    public_hash = _parse_public_hash(message)
+    if not public_hash:
+        await reply(message, text=MSG_REVOKE_USAGE, parse_mode=ParseMode.MARKDOWN)
+        return
+
+    try:
+        restored = await revoke_file_record(public_hash, revoked=False)
+    except Exception as e:
+        logger.error(f"Error unrevoking {public_hash}: {e}", exc_info=True)
+        await reply(message, text=MSG_ERROR_GENERIC)
+        return
+
+    text = (MSG_UNREVOKE_SUCCESS if restored else MSG_REVOKE_NOT_FOUND).format(
+        public_hash=public_hash)
+    await reply(message, text=text, parse_mode=ParseMode.MARKDOWN)

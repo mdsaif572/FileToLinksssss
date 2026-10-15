@@ -75,6 +75,9 @@ class Var:
 
     MAX_BATCH_FILES: int = int(os.getenv("MAX_BATCH_FILES", "50"))
 
+    # 0 = links never expire; otherwise every new canonical link lives this long
+    LINK_TTL_HOURS: int = int(os.getenv("LINK_TTL_HOURS", "0"))
+
     CHANNEL: bool = str_to_bool(os.getenv("CHANNEL", "False"))
 
     BANNED_CHANNELS: Set[int] = str_to_int_set(os.getenv("BANNED_CHANNELS", ""))

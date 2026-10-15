@@ -16,6 +16,7 @@ from Thunder.utils.bot_utils import quote_media_name
 from Thunder.utils.canonical_files import (
     PUBLIC_HASH_LENGTH,
     get_file_by_hash,
+    record_unavailable_reason,
     update_cached_file_id,
 )
 from Thunder.utils.custom_dl import ByteStreamer, client_label
@@ -201,6 +202,18 @@ def parse_range_header(range_header: str, file_size: int) -> tuple[int, int]:
         )
 
     return start, end
+
+
+def _unavailable_error(reason: str, public_hash: str) -> web.HTTPException:
+    """Map a record state to the HTTP error the caller should see."""
+    metrics.record_error("gone", f"{reason}:{public_hash}")
+    if reason == "revoked":
+        return web.HTTPGone(text="This link has been revoked by its owner.")
+    if reason == "expired":
+        return web.HTTPGone(
+            text="This link has expired. Send the file to the bot again for a new one."
+        )
+    return web.HTTPNotFound(text="Resource not found")
 
 
 def _resolve_unique_id(file_info: dict) -> str:
@@ -453,6 +466,10 @@ async def canonical_media_preview(request: web.Request):
         if not file_record:
             raise FileNotFound("Canonical file not found")
 
+        reason = record_unavailable_reason(file_record)
+        if reason:
+            raise _unavailable_error(reason, secure_hash)
+
         file_name = file_record.get("file_name") or f"file_{secure_hash}"
         src = f"{Var.URL.rstrip('/')}/f/{secure_hash}/{quote_media_name(file_name)}"
         rendered_page = await render_media_page(file_name, src, requested_action='stream')
@@ -471,6 +488,8 @@ async def canonical_media_preview(request: web.Request):
     except (InvalidHash, FileNotFound) as e:
         logger.debug(f"Canonical preview error: {type(e).__name__} - {e}", exc_info=True)
         raise web.HTTPNotFound(text="Resource not found") from e
+    except web.HTTPException:
+        raise
     except Exception as e:
         error_id = secrets.token_hex(6)
         logger.error(f"Canonical preview error {error_id}: {e}", exc_info=True)
@@ -504,6 +523,8 @@ async def media_preview(request: web.Request):
             f"Client error in preview: {type(e).__name__} - {e}",
             exc_info=True)
         raise web.HTTPNotFound(text="Resource not found") from e
+    except web.HTTPException:
+        raise
     except Exception as e:
         error_id = secrets.token_hex(6)
         logger.error(f"Preview error {error_id}: {e}", exc_info=True)
@@ -518,6 +539,10 @@ async def canonical_media_delivery(request: web.Request):
         file_record = await get_file_by_hash(secure_hash, raise_on_error=False)
         if not file_record:
             raise FileNotFound("Canonical file not found")
+
+        reason = record_unavailable_reason(file_record)
+        if reason:
+            raise _unavailable_error(reason, secure_hash)
 
         client_id, streamer = select_optimal_client()
         work_loads[client_id] += 1

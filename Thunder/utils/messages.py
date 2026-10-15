@@ -397,3 +397,18 @@ MSG_SYSTEM_STATS = (
 )
 
 MSG_DB_STATS = "📊 **Database Statistics**\n\n> 👥 **Total Users:** `{total_users}`"
+
+
+MSG_REVOKE_USAGE = (
+    "🔒 **Revoke a link**\n\n"
+    "Usage: `/revoke <hash>`\n"
+    "The hash is the 20-character part of a `/f/<hash>/<name>` link.\n"
+    "Use `/unrevoke <hash>` to make it servable again."
+)
+MSG_REVOKE_SUCCESS = "🔒 Revoked `{public_hash}` - that link now answers `410 Gone`."
+MSG_UNREVOKE_SUCCESS = "🔓 Restored `{public_hash}` - the link works again."
+MSG_REVOKE_NOT_FOUND = "❌ No file found for hash `{public_hash}`."
+MSG_REVOKE_INVALID = (
+    "❌ `{public_hash}` is not a valid file hash "
+    "(expected {hash_length} lowercase hex characters)."
+)

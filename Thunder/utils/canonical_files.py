@@ -37,6 +37,40 @@ _flush_task: Optional[asyncio.Task] = None
 _FLUSH_DELAY_SECONDS = 10
 
 
+def _as_utc(value):
+    """MongoDB hands back naive datetimes; compare them as UTC."""
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=datetime.timezone.utc)
+    return value.astimezone(datetime.timezone.utc)
+
+
+def record_unavailable_reason(record: Dict[str, Any], now=None) -> Optional[str]:
+    """Why this link must not be served: "revoked", "expired", or None."""
+    if not record:
+        return "missing"
+    if record.get("revoked"):
+        return "revoked"
+
+    expires_at = _as_utc(record.get("expires_at"))
+    if expires_at is None:
+        return None
+
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    if _as_utc(now) >= expires_at:
+        return "expired"
+    return None
+
+
+def default_expiry(now=None) -> Optional[datetime.datetime]:
+    """Expiry for a freshly ingested link, or None when links never expire."""
+    if Var.LINK_TTL_HOURS <= 0:
+        return None
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    return _as_utc(now) + datetime.timedelta(hours=Var.LINK_TTL_HOURS)
+
+
 def build_public_hash(file_unique_id: str) -> str:
     return hashlib.sha256(file_unique_id.encode("utf-8")).hexdigest()[:PUBLIC_HASH_LENGTH]
 
@@ -78,6 +112,8 @@ def build_file_record(
         "first_source_chat_id": source_chat_id,
         "first_source_message_id": source_message_id,
         "created_at": now,
+        "expires_at": default_expiry(now),
+        "revoked": False,
         "last_seen_at": now,
         "seen_count": 1,
         "reuse_count": 0
@@ -259,6 +295,31 @@ async def drain_background_touch_tasks() -> None:
             await db.touch_file_record(public_hash, reused=reused)
         except Exception as e:
             logger.error(f"Failed to flush touch for {public_hash}: {e}", exc_info=True)
+
+
+async def revoke_file_record(public_hash: str, *, revoked: bool = True) -> bool:
+    """Take a link out of service (or put it back). Returns True if it existed."""
+    record = await get_file_by_hash(public_hash, raise_on_error=False)
+    if not record:
+        return False
+
+    record["revoked"] = revoked
+    _forget(record)
+    if revoked:
+        return await db.set_file_revoked(public_hash, True, raise_on_error=False)
+    await db.set_file_revoked(public_hash, False, raise_on_error=False)
+    return True
+
+
+async def set_file_expiry(public_hash: str, expires_at) -> bool:
+    """Move a link's expiry (None = never)."""
+    record = await get_file_by_hash(public_hash, raise_on_error=False)
+    if not record:
+        return False
+
+    record["expires_at"] = expires_at
+    _remember(record)
+    return await db.set_file_expiry(public_hash, expires_at, raise_on_error=False)
 
 
 async def update_cached_file_id(record: Dict[str, Any], file_id: str) -> None:
