@@ -188,6 +188,61 @@ class ClientSelectionTest(unittest.IsolatedAsyncioTestCase):
             sr.streamers.clear()
 
 
+class FakeDcClient:
+    def __init__(self, dc_id):
+        self.storage = types.SimpleNamespace(dc_id=dc_id)
+
+
+class DcAwareSelectionTest(unittest.TestCase):
+    def setUp(self):
+        self._original_limit = sr.MAX_CONCURRENT_PER_CLIENT
+        sr.MAX_CONCURRENT_PER_CLIENT = 16
+        self._original_clients = dict(sr.multi_clients)
+        sr.multi_clients.clear()
+        sr.streamers.clear()
+        work_loads.clear()
+
+    def tearDown(self):
+        sr.MAX_CONCURRENT_PER_CLIENT = self._original_limit
+        sr.multi_clients.clear()
+        sr.multi_clients.update(self._original_clients)
+        sr.streamers.clear()
+        work_loads.clear()
+
+    def test_prefers_a_client_in_the_files_data_centre(self):
+        sr.multi_clients[0] = FakeDcClient(dc_id=2)
+        sr.multi_clients[1] = FakeDcClient(dc_id=4)
+        work_loads[0] = 0
+        work_loads[1] = 3          # busier, but in the right DC
+
+        client_id, _ = sr.select_optimal_client(preferred_dc=4)
+        self.assertEqual(client_id, 1)
+
+    def test_falls_back_to_the_least_loaded_client_without_a_dc_match(self):
+        sr.multi_clients[0] = FakeDcClient(dc_id=2)
+        sr.multi_clients[1] = FakeDcClient(dc_id=2)
+        work_loads[0] = 5
+        work_loads[1] = 1
+
+        client_id, _ = sr.select_optimal_client(preferred_dc=9)
+        self.assertEqual(client_id, 1)
+
+    def test_full_client_in_the_right_dc_does_not_get_the_traffic(self):
+        sr.multi_clients[0] = FakeDcClient(dc_id=4)
+        sr.multi_clients[1] = FakeDcClient(dc_id=2)
+        work_loads[0] = sr.MAX_CONCURRENT_PER_CLIENT
+        work_loads[1] = 0
+
+        client_id, _ = sr.select_optimal_client(preferred_dc=4)
+        self.assertEqual(client_id, 1)
+
+    def test_dc_from_file_id_handles_missing_and_broken_ids(self):
+        self.assertIsNone(sr.dc_from_file_id(None))
+        self.assertIsNone(sr.dc_from_file_id(""))
+        self.assertIsNone(sr.dc_from_file_id(12345))
+        self.assertIsNone(sr.dc_from_file_id("not-a-real-file-id"))
+
+
 class BlockingStreamer(FakeStreamer):
     """Keeps the first chunk in flight until the test releases it."""
 

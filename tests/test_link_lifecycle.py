@@ -121,7 +121,7 @@ class CanonicalRouteStateTest(unittest.IsolatedAsyncioTestCase):
         self._original_lookup = sr.get_file_by_hash
         self._original_limiter = sr.user_streams
 
-        sr.select_optimal_client = lambda: (0, self.streamer)
+        sr.select_optimal_client = lambda **kwargs: (0, self.streamer)
         sr.user_streams = sr.UserStreamLimiter(0)
         sr.get_file_by_hash = self._lookup
 

@@ -4,6 +4,7 @@ import asyncio
 import re
 import secrets
 import time
+from typing import Optional
 from urllib.parse import quote, unquote
 
 from aiohttp import web
@@ -138,7 +139,24 @@ def validate_public_hash(public_hash: str) -> str:
     return secure_hash
 
 
-def select_optimal_client() -> tuple[int, ByteStreamer]:
+def _client_dc(client) -> Optional[int]:
+    """The Telegram data centre this client is connected to, if known."""
+    storage = getattr(client, "storage", None)
+    return getattr(storage, "dc_id", None)
+
+
+def dc_from_file_id(file_id) -> Optional[int]:
+    """The data centre that holds a file, from its stored file_id."""
+    if not file_id or not isinstance(file_id, str):
+        return None
+    try:
+        from pyrogram.file_id import FileId
+        return FileId.decode(file_id).dc_id or None
+    except Exception:
+        return None
+
+
+def select_optimal_client(preferred_dc: Optional[int] = None) -> tuple[int, ByteStreamer]:
     if not work_loads:
         raise web.HTTPInternalServerError(
             text=("No available clients to handle the request. "
@@ -164,7 +182,18 @@ def select_optimal_client() -> tuple[int, ByteStreamer]:
             },
         )
 
-    client_id = min(available_clients, key=lambda x: x[1])[0]
+    candidates = available_clients
+    if preferred_dc:
+        # A client sitting in the file's own data centre skips the cross-DC hop,
+        # which is most of the time-to-first-byte on a fresh link.
+        same_dc = [
+            (cid, load) for cid, load in available_clients
+            if _client_dc(multi_clients.get(cid)) == preferred_dc
+        ]
+        if same_dc:
+            candidates = same_dc
+
+    client_id = min(candidates, key=lambda x: x[1])[0]
     return client_id, get_streamer(client_id)
 
 
@@ -594,7 +623,8 @@ async def canonical_media_delivery(request: web.Request):
         if reason:
             raise _unavailable_error(reason, secure_hash)
 
-        client_id, streamer = select_optimal_client()
+        preferred_dc = dc_from_file_id(file_record.get("file_id"))
+        client_id, streamer = select_optimal_client(preferred_dc=preferred_dc)
         work_loads[client_id] += 1
 
         user_key = file_record.get("first_source_chat_id") or request.remote
