@@ -6,7 +6,9 @@ from collections import OrderedDict
 from typing import Any, AsyncGenerator, Awaitable, Callable, Dict, Optional, Tuple
 
 from pyrogram import Client
-from pyrogram.errors import FloodWait
+from pyrogram.errors import (FileIdInvalid, FileReferenceEmpty,
+                             FileReferenceExpired, FileReferenceInvalid,
+                             FloodWait)
 from pyrogram.types import Message
 
 from Thunder.server.exceptions import FileNotFound
@@ -16,8 +18,33 @@ from Thunder.vars import Var
 
 _MSG_CACHE_TTL = 300  # 5 minutes
 _MSG_CACHE_MAX_SIZE = 500
-_GLOBAL_MSG_CACHE: OrderedDict[int, Tuple[float, Message]] = OrderedDict()
+# Keyed by (id(client), message_id): a Telegram file reference is only valid for
+# the session that fetched the message, so a Message obtained by one client must
+# never be handed to another one. Sharing one cache across multi-clients is what
+# produced FILE_REFERENCE_EXPIRED on the streaming client.
+_GLOBAL_MSG_CACHE: OrderedDict[Tuple[int, int], Tuple[float, Message]] = OrderedDict()
 _MSG_LOCK = asyncio.Lock()
+
+_FILE_REFERENCE_ERRORS = (
+    FileReferenceExpired,
+    FileReferenceInvalid,
+    FileReferenceEmpty,
+    FileIdInvalid,
+)
+
+
+def _is_file_reference_error(exc: BaseException) -> bool:
+    """True for Telegram errors that mean "this file reference is not usable"."""
+    if isinstance(exc, _FILE_REFERENCE_ERRORS):
+        return True
+    text = str(exc).upper()
+    return "FILE_REFERENCE" in text or "FILE_ID_INVALID" in text
+
+
+def invalidate_cached_message(message_id: int) -> None:
+    """Drop every cached Message for this id so the next read re-fetches it."""
+    for key in [k for k in _GLOBAL_MSG_CACHE if k[1] == message_id]:
+        _GLOBAL_MSG_CACHE.pop(key, None)
 
 
 class ByteStreamer:
@@ -27,54 +54,67 @@ class ByteStreamer:
         self.client = client
         self.chat_id = int(Var.BIN_CHANNEL)
 
-    async def get_message(self, message_id: int) -> Message:
-        now = time.time()
-        async with _MSG_LOCK:
-            if message_id in _GLOBAL_MSG_CACHE:
-                ts, message = _GLOBAL_MSG_CACHE[message_id]
-                if now - ts < _MSG_CACHE_TTL:
-                    _GLOBAL_MSG_CACHE.move_to_end(message_id)
-                    return message
-                _GLOBAL_MSG_CACHE.pop(message_id, None)
+    async def get_message(self, message_id: int, *, force_refresh: bool = False) -> Message:
+        """Fetch a BIN_CHANNEL message, with a short per-client cache.
 
-        fetch_client = self.client
+        The message is always read with the client that is going to stream it,
+        falling back to the primary bot only if that read fails, because the
+        file reference Telegram returns is bound to the session that fetched it.
+        ``force_refresh`` additionally skips the cache, which is what the retry
+        path needs after a stale reference was rejected.
+        """
+        now = time.time()
+        cache_key = (id(self.client), message_id)
+
+        if not force_refresh:
+            async with _MSG_LOCK:
+                if cache_key in _GLOBAL_MSG_CACHE:
+                    ts, message = _GLOBAL_MSG_CACHE[cache_key]
+                    if now - ts < _MSG_CACHE_TTL:
+                        _GLOBAL_MSG_CACHE.move_to_end(cache_key)
+                        return message
+                    _GLOBAL_MSG_CACHE.pop(cache_key, None)
+
+        fetch_clients = [self.client]
         try:
             from Thunder.bot import StreamBot
-            if StreamBot and fetch_client is not StreamBot:
-                fetch_client = StreamBot
+            if StreamBot and StreamBot is not self.client:
+                fetch_clients.append(StreamBot)
         except Exception:
             pass
 
-        message = None
-        for attempt in range(5):
-            try:
-                message = await fetch_client.get_messages(self.chat_id, message_id)
+        last_error: Exception | None = None
+        for fetch_client in fetch_clients:
+            for _attempt in range(3):
+                try:
+                    message = await fetch_client.get_messages(self.chat_id, message_id)
+                except FloodWait as e:
+                    logger.warning(f"FloodWait on get_messages: sleep {e.value}s")
+                    await asyncio.sleep(e.value)
+                    continue
+                except Exception as e:
+                    last_error = e
+                    logger.debug(
+                        f"Error fetching message {message_id} with "
+                        f"{type(fetch_client).__name__}: {e}"
+                    )
+                    break
+
+                if message and message.media:
+                    async with _MSG_LOCK:
+                        # Cache under the client that fetched it, never under the
+                        # client that merely asked for it.
+                        _key = (id(fetch_client), message_id)
+                        _GLOBAL_MSG_CACHE[_key] = (now, message)
+                        _GLOBAL_MSG_CACHE.move_to_end(_key)
+                        while len(_GLOBAL_MSG_CACHE) > _MSG_CACHE_MAX_SIZE:
+                            _GLOBAL_MSG_CACHE.popitem(last=False)
+                    return message
+
+                last_error = FileNotFound(f"Message {message_id} has no media")
                 break
-            except FloodWait as e:
-                logger.warning(f"FloodWait on get_messages: sleep {e.value}s")
-                await asyncio.sleep(e.value)
-            except Exception as e:
-                logger.debug(f"Error fetching message {message_id} with primary: {e}")
-                if fetch_client is not self.client:
-                    try:
-                        message = await self.client.get_messages(self.chat_id, message_id)
-                        break
-                    except Exception:
-                        pass
-                if attempt == 4:
-                    raise FileNotFound(f"Message {message_id} not found") from e
-                await asyncio.sleep(0.5)
 
-        if not message or not message.media:
-            raise FileNotFound(f"Message {message_id} not found")
-
-        async with _MSG_LOCK:
-            _GLOBAL_MSG_CACHE[message_id] = (now, message)
-            _GLOBAL_MSG_CACHE.move_to_end(message_id)
-            while len(_GLOBAL_MSG_CACHE) > _MSG_CACHE_MAX_SIZE:
-                _GLOBAL_MSG_CACHE.popitem(last=False)
-
-        return message
+        raise FileNotFound(f"Message {message_id} not found") from last_error
 
     async def stream_file(
         self,
@@ -106,11 +146,15 @@ class ByteStreamer:
 
         for ref in refs:
             target = None
+            force_refresh = False
             retry_count = 0
             while retry_count < max_retries:
                 try:
                     if target is None:
-                        target = await self.get_message(ref) if isinstance(ref, int) else ref
+                        target = (
+                            await self.get_message(ref, force_refresh=force_refresh)
+                            if isinstance(ref, int) else ref
+                        )
                         if (
                             on_fallback_message is not None and
                             fallback_message_id is not None and
@@ -142,6 +186,25 @@ class ByteStreamer:
                     )
                     await asyncio.sleep(0.5 * retry_count)
                 except Exception as e:
+                    if _is_file_reference_error(e):
+                        # Telegram hands out a file reference that only the
+                        # session which fetched the message can use, and it can
+                        # expire. Drop the cached Message and re-read it with the
+                        # streaming client, then retry the same chunk.
+                        retry_count += 1
+                        last_error = e
+                        logger.warning(
+                            f"Stale file reference for message {media_id} at chunk "
+                            f"{current_offset} (attempt {retry_count}/{max_retries}): "
+                            f"refreshing the message and retrying"
+                        )
+                        if media_id is not None:
+                            invalidate_cached_message(media_id)
+                        force_refresh = True
+                        target = None
+                        await asyncio.sleep(0.25 * retry_count)
+                        continue
+
                     last_error = e
                     logger.debug(f"Error streaming media ref {ref}: {e}", exc_info=True)
                     break
