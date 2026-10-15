@@ -89,6 +89,21 @@ class TokenParserIdsTest(unittest.TestCase):
         self.assertEqual(sorted(tokens), [3])
 
 
+class ConfiguredChannelsTest(unittest.TestCase):
+    def test_primary_and_extras(self):
+        environ = {"BIN_CHANNEL": "-100123", "BIN_CHANNEL_2": '"-100456"', "BIN_CHANNEL_3": "junk"}
+        self.assertEqual(
+            check_pool.configured_channels(environ),
+            [("BIN_CHANNEL", -100123), ("BIN_CHANNEL_2", -100456)]
+        )
+
+    def test_only_primary(self):
+        self.assertEqual(check_pool.configured_channels({"BIN_CHANNEL": "-1001"}), [("BIN_CHANNEL", -1001)])
+
+    def test_nothing_configured(self):
+        self.assertEqual(check_pool.configured_channels({}), [])
+
+
 class ConfiguredSlotsTest(unittest.TestCase):
     def test_reads_and_normalises_slots(self):
         environ = {

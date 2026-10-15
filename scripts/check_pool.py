@@ -56,6 +56,24 @@ def configured_slots(environ: Optional[Dict[str, str]] = None) -> Dict[int, str]
     return dict(sorted(slots.items()))
 
 
+def configured_channels(environ: Optional[Dict[str, str]] = None) -> List[tuple]:
+    """(label, id) for BIN_CHANNEL and any BIN_CHANNEL_2, BIN_CHANNEL_3, ..."""
+    environ = os.environ if environ is None else environ
+    channels: List[tuple] = []
+    raw = (environ.get("BIN_CHANNEL") or "").strip().strip('"').strip("'")
+    if raw:
+        channels.append(("BIN_CHANNEL", int(raw)))
+    for index in range(2, 50):
+        raw = (environ.get(f"BIN_CHANNEL_{index}") or "").strip().strip('"').strip("'")
+        if not raw:
+            continue
+        try:
+            channels.append((f"BIN_CHANNEL_{index}", int(raw)))
+        except ValueError:
+            continue
+    return channels
+
+
 def missing_slots(slots: Dict[int, str], upto: int = MAX_TOKEN_SLOTS) -> List[int]:
     """Slots inside 1..upto that are configured nowhere (not an error, just news)."""
     if not slots:
@@ -64,8 +82,12 @@ def missing_slots(slots: Dict[int, str], upto: int = MAX_TOKEN_SLOTS) -> List[in
 
 
 async def inspect(slot: int, token: str, api_id: int, api_hash: str,
-                  bin_channel: int) -> Tuple[int, str, str]:
-    """Return (slot, username or "-", verdict) for one token."""
+                  channels: List[tuple]) -> Tuple[int, str, str]:
+    """Return (slot, username or "-", verdict) for one token.
+
+    The verdict covers every configured storage channel, because a bot that
+    administers only one of them can serve only the files stored there.
+    """
     from pyrogram import Client
 
     client = Client(
@@ -83,17 +105,25 @@ async def inspect(slot: int, token: str, api_id: int, api_hash: str,
 
     try:
         username = getattr(getattr(client, "me", None), "username", None) or "-"
-        try:
-            chat = await client.get_chat(bin_channel)
-            title = getattr(chat, "title", None) or str(bin_channel)
+        readable, unreadable = [], []
+        for label, channel in channels:
             try:
-                member = await client.get_chat_member(bin_channel, client.me.id)
-                role = str(getattr(member, "status", "member")).split(".")[-1]
-            except Exception:
-                role = "unknown"
-            return slot, username, f"OK - can read '{title}' ({role})"
-        except Exception as e:
-            return slot, username, f"CANNOT READ BIN_CHANNEL ({type(e).__name__}: {e})"
+                chat = await client.get_chat(channel)
+                try:
+                    member = await client.get_chat_member(channel, client.me.id)
+                    role = str(getattr(member, "status", "member")).split(".")[-1]
+                except Exception:
+                    role = "unknown"
+                title = getattr(chat, "title", None) or str(channel)
+                readable.append(f"{label} '{title}' ({role})")
+            except Exception as e:
+                unreadable.append(f"{label} ({type(e).__name__}: {e})")
+
+        if not readable:
+            return slot, username, f"CANNOT READ ANY CHANNEL - {'; '.join(unreadable)}"
+        if unreadable:
+            return slot, username, f"PARTIAL - serves {', '.join(readable)}; cannot read {'; '.join(unreadable)}"
+        return slot, username, f"OK - serves {', '.join(readable)}"
     finally:
         try:
             await client.stop()
@@ -109,9 +139,9 @@ async def main() -> int:
 
     api_id = int(os.getenv("API_ID", "0") or 0)
     api_hash = os.getenv("API_HASH", "").strip().strip('"').strip("'")
-    bin_channel = int(os.getenv("BIN_CHANNEL", "0") or 0)
+    channels = configured_channels()
 
-    if not api_id or not api_hash or not bin_channel:
+    if not api_id or not api_hash or not channels:
         print("API_ID, API_HASH and BIN_CHANNEL must be set (config.env or environment).")
         return 2
 
@@ -122,7 +152,7 @@ async def main() -> int:
     if args.limit:
         slots = dict(list(slots.items())[:args.limit])
 
-    print(f"BIN_CHANNEL: {bin_channel}")
+    print("Storage channels: " + ", ".join(f"{label}={channel}" for label, channel in channels))
     if not slots:
         print("No MULTI_TOKEN* slots are configured - the primary bot serves everything.")
         return 0
@@ -133,7 +163,7 @@ async def main() -> int:
 
     failures = 0
     for index, token in slots.items():
-        slot, username, verdict = await inspect(index, token, api_id, api_hash, bin_channel)
+        slot, username, verdict = await inspect(index, token, api_id, api_hash, channels)
         if not verdict.startswith("OK"):
             failures += 1
         print(f"{slot:>5}  {mask_token(token):<12}  {('@' + username):<24}  {verdict}")
@@ -144,8 +174,9 @@ async def main() -> int:
 
     if failures:
         print(
-            f"\n{failures} token(s) cannot serve. Add those bots to BIN_CHANNEL as "
-            "admin/member, or remove the token from the config."
+            f"\n{failures} token(s) cannot serve every channel. Make each of those "
+            "bots an administrator of the channels it is missing, or remove the "
+            "token from the config."
         )
     return 1 if failures else 0
 
