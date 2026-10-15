@@ -5,6 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Downloading: {{ file_name }} — Cloud Station</title>
     <meta http-equiv="refresh" content="0;url={{ src|safe }}">
+    <meta property="og:type" content="video.other">
+    <meta property="og:site_name" content="Cloud Station">
+    <meta property="og:title" content="{{ file_name }}">
+    <meta property="og:description" content="Download {{ file_name }} from Cloud Station.">
+    <meta property="og:url" content="{{ src|safe }}">
+    {% if thumb_url %}<meta property="og:image" content="{{ thumb_url }}">
+    <meta name="twitter:card" content="summary_large_image">{% else %}<meta name="twitter:card" content="summary">{% endif %}
+    <meta name="twitter:title" content="{{ file_name }}">
     <meta name="theme-color" content="#06070a">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>

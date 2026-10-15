@@ -458,6 +458,51 @@ async def media_options(request: web.Request):
     })
 
 
+@routes.get(r"/thumb/{secure_hash}", allow_head=True)
+async def canonical_thumbnail(request: web.Request):
+    """Serve the stored thumbnail, so links unfurl with a preview image."""
+    try:
+        secure_hash = validate_public_hash(request.match_info["secure_hash"])
+        file_record = await get_file_by_hash(secure_hash, raise_on_error=False)
+        if not file_record:
+            raise FileNotFound("Canonical file not found")
+
+        reason = record_unavailable_reason(file_record)
+        if reason:
+            raise _unavailable_error(reason, secure_hash)
+
+        thumb_file_id = file_record.get("thumb_file_id")
+        if not thumb_file_id:
+            raise FileNotFound("No thumbnail stored for this file")
+
+        # The primary bot is the one that read the canonical record, so its
+        # reference is the one that works here.
+        payload = await StreamBot.download_media(thumb_file_id, in_memory=True)
+        if not payload:
+            raise FileNotFound("Thumbnail could not be downloaded")
+
+        body = payload.getvalue() if hasattr(payload, "getvalue") else bytes(payload)
+        return web.Response(
+            body=body,
+            content_type="image/jpeg",
+            headers={
+                **CORS_HEADERS,
+                "Cache-Control": "public, max-age=604800",
+                "X-Content-Type-Options": "nosniff",
+            }
+        )
+    except (InvalidHash, FileNotFound) as e:
+        logger.debug(f"Thumbnail not available: {e}")
+        raise web.HTTPNotFound(text="Resource not found") from e
+    except web.HTTPException:
+        raise
+    except Exception as e:
+        error_id = secrets.token_hex(6)
+        logger.error(f"Thumbnail error {error_id}: {e}", exc_info=True)
+        raise web.HTTPInternalServerError(
+            text=f"Server error occurred: {error_id}") from e
+
+
 @routes.get(r"/watch/f/{secure_hash}/{name:.+}", allow_head=True)
 async def canonical_media_preview(request: web.Request):
     try:
@@ -472,7 +517,12 @@ async def canonical_media_preview(request: web.Request):
 
         file_name = file_record.get("file_name") or f"file_{secure_hash}"
         src = f"{Var.URL.rstrip('/')}/f/{secure_hash}/{quote_media_name(file_name)}"
-        rendered_page = await render_media_page(file_name, src, requested_action='stream')
+        thumb_url = (
+            f"{Var.URL.rstrip('/')}/thumb/{secure_hash}"
+            if file_record.get("thumb_file_id") else None
+        )
+        rendered_page = await render_media_page(
+            file_name, src, requested_action='stream', thumb_url=thumb_url)
 
         response = web.Response(
             text=rendered_page,

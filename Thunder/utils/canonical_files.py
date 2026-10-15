@@ -75,6 +75,21 @@ def build_public_hash(file_unique_id: str) -> str:
     return hashlib.sha256(file_unique_id.encode("utf-8")).hexdigest()[:PUBLIC_HASH_LENGTH]
 
 
+def _largest_thumb_file_id(media: Any) -> Optional[str]:
+    """File id of the biggest thumbnail available, for link previews."""
+    thumbs = getattr(media, "thumbs", None) or []
+    best = None
+    best_area = -1
+    for thumb in thumbs:
+        file_id = getattr(thumb, "file_id", None)
+        if not file_id:
+            continue
+        area = (getattr(thumb, "width", 0) or 0) * (getattr(thumb, "height", 0) or 0)
+        if area >= best_area:
+            best, best_area = file_id, area
+    return best
+
+
 def _infer_mime_type(media: Any) -> str:
     mime_type = getattr(media, "mime_type", None)
     if mime_type:
@@ -109,6 +124,7 @@ def build_file_record(
         "mime_type": _infer_mime_type(media),
         "file_size": getattr(media, "file_size", 0) or 0,
         "media_type": type(media).__name__.lower(),
+        "thumb_file_id": _largest_thumb_file_id(media),
         "first_source_chat_id": source_chat_id,
         "first_source_message_id": source_message_id,
         "created_at": now,
