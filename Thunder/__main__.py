@@ -66,11 +66,15 @@ def schedule_index_ensure() -> None:
 
     def _log_index_failure(done_task: asyncio.Task) -> None:
         try:
+            if done_task.cancelled():
+                return
             created_indexes = done_task.result()
             if created_indexes:
                 print("   ✓ Database indexes ensured.")
             else:
                 print("   ▶ Database indexes could not be ensured during startup.")
+        except asyncio.CancelledError:
+            return
         except Exception as e:
             logger.error(f"Background database index ensure failed: {e}", exc_info=True)
 

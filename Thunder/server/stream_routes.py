@@ -1,11 +1,13 @@
 # Thunder/server/stream_routes.py
 
+import asyncio
 import re
 import secrets
 import time
 from urllib.parse import quote, unquote
 
 from aiohttp import web
+from aiohttp.client_exceptions import ClientConnectionResetError
 
 from Thunder import __version__, StartTime
 from Thunder.bot import StreamBot, multi_clients, work_loads
@@ -258,8 +260,20 @@ async def _serve_media_response(
 
             if bytes_sent >= content_length:
                 break
-    except (ConnectionResetError, asyncio.CancelledError):
+    except (
+        ConnectionResetError,
+        ConnectionError,
+        BrokenPipeError,
+        ClientConnectionResetError,
+        asyncio.CancelledError,
+    ):
         logger.debug(f"Client disconnected early while streaming {filename}")
+    except Exception as e:
+        err_str = str(e).lower()
+        if "closing transport" in err_str or "connection lost" in err_str or "connection reset" in err_str:
+            logger.debug(f"Client transport closed while streaming {filename}")
+        else:
+            raise
     finally:
         work_loads[client_id] -= 1
 

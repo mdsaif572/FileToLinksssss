@@ -192,7 +192,9 @@ async def is_admin(cli: Client, chat_id_val: int) -> bool:
 
 async def reply(msg: Message, **kwargs):
     try:
-        return await msg.reply_text(**kwargs, quote=True, disable_web_page_preview=True)
+        kwargs.setdefault("reply_to_message_id", msg.id)
+        kwargs.pop("quote", None)
+        return await msg.reply_text(**kwargs, disable_web_page_preview=True)
     except FloodWait as e:
         await asyncio.sleep(e.value)
-        return await msg.reply_text(**kwargs, quote=True, disable_web_page_preview=True)
+        return await msg.reply_text(**kwargs, disable_web_page_preview=True)
