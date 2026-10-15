@@ -16,6 +16,7 @@ Run with::
     python -m unittest discover -s tests -t .
 """
 
+import asyncio
 import os
 import unittest
 from unittest import mock
@@ -34,6 +35,7 @@ from Thunder.server.exceptions import FileNotFound
 from Thunder.utils import custom_dl
 
 CHUNK_OK = b"payload-1" * 4
+CHUNK_BYTES = 1024 * 1024   # stream_file takes bytes, stream_media takes chunk counts
 
 
 class FakeMessage:
@@ -46,10 +48,12 @@ class FakeMessage:
 class FakeClient:
     """Minimal stand-in for a pyrogram Client used by ByteStreamer."""
 
-    def __init__(self, name, can_read_bin_channel=True, fail_reference_times=0):
+    def __init__(self, name, can_read_bin_channel=True, fail_reference_times=0,
+                 hang_once_at=None):
         self.name = name
         self.can_read_bin_channel = can_read_bin_channel
         self.fail_reference_times = fail_reference_times
+        self.hang_once_at = hang_once_at
         self.fetch_calls = 0
         self.stream_runs = 0
 
@@ -64,7 +68,13 @@ class FakeClient:
             self.stream_runs += 1
             if self.stream_runs <= self.fail_reference_times:
                 raise FileReferenceExpired()
-            yield CHUNK_OK
+
+            count = limit if limit > 0 else 1
+            for index in range(offset, offset + count):
+                if self.hang_once_at == index:
+                    self.hang_once_at = None
+                    await asyncio.sleep(3600)   # a read that never returns
+                yield CHUNK_OK
 
         return generator()
 
@@ -172,6 +182,21 @@ class ByteStreamerReferenceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(chunks, [CHUNK_OK])
         self.assertEqual(secondary.stream_runs, 1)
         self.assertEqual(self.primary.stream_runs, 1)
+
+    async def test_a_stalled_chunk_read_is_retried_instead_of_hanging(self):
+        # The production H15: the response sat silent until the router dropped it.
+        client = FakeClient("only", hang_once_at=1)
+        streamer = custom_dl.ByteStreamer(client)
+
+        # a byte range spanning two 1 MiB chunks, so the hang lands mid-stream
+        with mock.patch.object(custom_dl, "CHUNK_READ_TIMEOUT", 0.05):
+            chunks = [
+                chunk async for chunk in
+                streamer.stream_file(5, offset=0, limit=CHUNK_BYTES + 5)
+            ]
+
+        self.assertEqual(chunks, [CHUNK_OK, CHUNK_OK])
+        self.assertEqual(client.stream_runs, 2, "the stalled read should be restarted")
 
     async def test_stream_gives_up_after_bounded_retries(self):
         # Both sessions reject the reference - the shape of the production log

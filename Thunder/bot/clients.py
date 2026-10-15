@@ -41,16 +41,42 @@ async def _can_read_bin_channel(client, label: str) -> bool:
     return True
 
 
-async def cleanup_clients():
-    for client in multi_clients.values():
+SHUTDOWN_TIMEOUT_SECONDS = 20.0
+
+
+async def _stop_client(client) -> None:
+    try:
         try:
-            try:
-                await client.stop()
-            except FloodWait as e:
-                await asyncio.sleep(e.value)
-                await client.stop()
-        except Exception as e:
-            logger.error(f"Error stopping client: {e}", exc_info=True)
+            await client.stop()
+        except FloodWait as e:
+            await asyncio.sleep(e.value)
+            await client.stop()
+    except Exception as e:
+        logger.error(f"Error stopping client: {e}", exc_info=True)
+
+
+async def cleanup_clients():
+    """Stop every client, in parallel and within the platform's grace period.
+
+    Heroku sends SIGTERM and SIGKILLs whatever is still alive 30 seconds later
+    (R12 "Exit timeout", exit status 137), so stopping a large pool one client at
+    a time could never finish in time.
+    """
+    clients = list(multi_clients.values())
+    if not clients:
+        return
+
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(*(_stop_client(client) for client in clients),
+                           return_exceptions=True),
+            timeout=SHUTDOWN_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        logger.warning(
+            f"Stopping {len(clients)} clients took longer than "
+            f"{SHUTDOWN_TIMEOUT_SECONDS:.0f}s; continuing shutdown"
+        )
 
 async def initialize_clients():
     print("╠══════════════════ INITIALIZING CLIENTS ═══════════════════╣")

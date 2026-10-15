@@ -8,6 +8,7 @@ bot and streamed by this client. It is now detected at boot and dropped.
 
 import asyncio
 import os
+import time
 import unittest
 from unittest import mock
 
@@ -126,6 +127,56 @@ class InitializeClientsTest(unittest.IsolatedAsyncioTestCase):
         unusable = [c for c in FakePoolClient.instances if c.name == "token-two"]
         self.assertEqual(len(unusable), 1)
         self.assertTrue(unusable[0].stopped, "an unusable client should be stopped")
+
+
+class CleanupClientsTest(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        multi_clients.clear()
+
+    async def asyncTearDown(self):
+        multi_clients.clear()
+
+    async def test_clients_are_stopped_in_parallel(self):
+        class SlowClient:
+            def __init__(self):
+                self.stopped = False
+
+            async def stop(self):
+                await asyncio.sleep(0.2)
+                self.stopped = True
+
+        clients = [SlowClient() for _ in range(4)]
+        multi_clients.update({index: client for index, client in enumerate(clients)})
+
+        started = time.monotonic()
+        await clients_module.cleanup_clients()
+        elapsed = time.monotonic() - started
+
+        self.assertTrue(all(client.stopped for client in clients))
+        self.assertLess(
+            elapsed, 0.6,
+            "clients must stop concurrently: sequentially this takes 0.8s and a "
+            "real pool of 44 blows past the platform's 30s grace period (R12)"
+        )
+
+    async def test_one_failing_client_does_not_block_the_rest(self):
+        class BrokenClient:
+            async def stop(self):
+                raise RuntimeError("already gone")
+
+        class GoodClient:
+            def __init__(self):
+                self.stopped = False
+
+            async def stop(self):
+                self.stopped = True
+
+        good = GoodClient()
+        multi_clients.update({0: BrokenClient(), 1: good})
+
+        await clients_module.cleanup_clients()
+
+        self.assertTrue(good.stopped)
 
 
 if __name__ == "__main__":

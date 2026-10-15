@@ -17,6 +17,11 @@ from Thunder.utils.logger import logger
 from Thunder.utils.metrics import metrics
 from Thunder.vars import Var
 
+# A chunk that never arrives used to hang the response until the gateway killed
+# it (Heroku router: H15 "Idle connection" after 55s, with the client left on a
+# half-delivered stream). Fail the read instead so the retry path can resume.
+CHUNK_READ_TIMEOUT = 20.0
+
 _MSG_CACHE_TTL = 300  # 5 minutes
 _MSG_CACHE_MAX_SIZE = 500
 # Keyed by (id(client), message_id): a Telegram file reference is only valid for
@@ -155,6 +160,23 @@ class ByteStreamer:
         )
         return message
 
+    async def _read_chunks(self, client, target, offset: int, limit: int):
+        """Yield media chunks, but never wait forever for one.
+
+        The timeout is what turns a stalled MTProto read into a retryable error
+        (``asyncio.TimeoutError`` is handled by the retry branch) instead of a
+        response that sits silent until the router drops it.
+        """
+        iterator = client.stream_media(target, offset=offset, limit=limit).__aiter__()
+        while True:
+            try:
+                chunk = await asyncio.wait_for(
+                    iterator.__anext__(), timeout=CHUNK_READ_TIMEOUT
+                )
+            except StopAsyncIteration:
+                return
+            yield chunk
+
     async def stream_file(
         self,
         media_ref: int | Message,
@@ -210,8 +232,8 @@ class ByteStreamer:
                         ):
                             await on_fallback_message(target)
 
-                    async for chunk in stream_client.stream_media(
-                        target, offset=current_offset, limit=remaining_chunks
+                    async for chunk in self._read_chunks(
+                        stream_client, target, current_offset, remaining_chunks
                     ):
                         yield chunk
                         current_offset += 1

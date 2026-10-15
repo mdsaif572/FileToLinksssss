@@ -101,6 +101,16 @@ Telegram (`send_document(url)`), stored in BIN_CHANNEL, registered canonically
 and returned as a normal link; toggle with `URL_UPLOAD_ENABLED`. `/mystats`
 reports links created, downloads served and bytes stored per uploader.
 
+Two production symptoms from the router log, both handled in code:
+
+- a stalled MTProto read used to leave the response silent until the gateway
+  dropped it (`H15 Idle connection`, client stuck on a half-delivered stream).
+  `CHUNK_READ_TIMEOUT` (20s, `Thunder/utils/custom_dl.py`) turns a silent read
+  into a retryable `asyncio.TimeoutError`, so the same chunk is re-read instead.
+- `cleanup_clients()` stops the whole pool with `asyncio.gather` inside a 20s
+  budget. Stopping 44 clients one by one exceeded the platform's 30s SIGTERM
+  grace period and produced `R12 Exit timeout` + SIGKILL (status 137).
+
 Client selection prefers a pool client in the file's own data centre
 (`dc_from_file_id` + `select_optimal_client(preferred_dc=...)`) while still
 respecting the per-client capacity gate.
