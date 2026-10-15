@@ -140,11 +140,13 @@ class ByteStreamerReferenceTest(unittest.IsolatedAsyncioTestCase):
         chunks = [chunk async for chunk in streamer.stream_file(5)]
 
         self.assertEqual(chunks, [CHUNK_OK])
-        self.assertEqual(client.stream_runs, 2, "the stream should have been retried")
+        self.assertEqual(client.stream_runs, 1)
         self.assertEqual(
-            client.fetch_calls, 2,
-            "the retry must re-read the message so the reference is refreshed"
+            self.primary.stream_runs, 1,
+            "the retry must run on the other session instead of replaying the "
+            "reference Telegram just rejected"
         )
+        self.assertEqual(client.fetch_calls + self.primary.fetch_calls, 2)
 
     async def test_streams_with_the_client_that_owns_the_reference(self):
         secondary = FakeClient("secondary", can_read_bin_channel=False)
@@ -159,15 +161,32 @@ class ByteStreamerReferenceTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(self.primary.stream_runs, 1)
 
+    async def test_reference_rejection_rotates_to_the_other_client(self):
+        # The streaming client can read BIN_CHANNEL, so the fallback path is not
+        # involved - Telegram simply keeps rejecting the reference it hands out.
+        secondary = FakeClient("secondary", fail_reference_times=99)
+        streamer = custom_dl.ByteStreamer(secondary)
+
+        chunks = [chunk async for chunk in streamer.stream_file(5)]
+
+        self.assertEqual(chunks, [CHUNK_OK])
+        self.assertEqual(secondary.stream_runs, 1)
+        self.assertEqual(self.primary.stream_runs, 1)
+
     async def test_stream_gives_up_after_bounded_retries(self):
+        # Both sessions reject the reference - the shape of the production log
+        # where every attempt on either client failed.
         client = FakeClient("only", fail_reference_times=99)
+        self.primary.fail_reference_times = 99
         streamer = custom_dl.ByteStreamer(client)
 
         with self.assertRaises(FileNotFound):
             [chunk async for chunk in streamer.stream_file(5)]
 
-        self.assertEqual(client.stream_runs, 5)
-        self.assertEqual(client.fetch_calls, 5)
+        stream_runs = client.stream_runs + self.primary.stream_runs
+        fetch_calls = client.fetch_calls + self.primary.fetch_calls
+        self.assertEqual(stream_runs, 5)
+        self.assertEqual(fetch_calls, 5)
 
 
 if __name__ == "__main__":

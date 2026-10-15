@@ -47,6 +47,23 @@ def invalidate_cached_message(message_id: int) -> None:
         _GLOBAL_MSG_CACHE.pop(key, None)
 
 
+def primary_client() -> Optional[Client]:
+    """The primary bot client, or None if it is not importable."""
+    try:
+        from Thunder.bot import StreamBot
+        return StreamBot
+    except Exception:
+        return None
+
+
+def _client_label(client: Optional[Client]) -> str:
+    """Readable client name for logs - the point is telling sessions apart."""
+    if client is None:
+        return "none"
+    name = getattr(client, "name", None)
+    return f"{type(client).__name__}:{name}" if name else type(client).__name__
+
+
 class ByteStreamer:
     __slots__ = ('client', 'chat_id')
 
@@ -55,7 +72,11 @@ class ByteStreamer:
         self.chat_id = int(Var.BIN_CHANNEL)
 
     async def get_message_with_owner(
-        self, message_id: int, *, force_refresh: bool = False
+        self,
+        message_id: int,
+        *,
+        force_refresh: bool = False,
+        preferred_client: Optional[Client] = None
     ) -> Tuple[Message, Client]:
         """Fetch a BIN_CHANNEL message and report which client fetched it.
 
@@ -68,12 +89,17 @@ class ByteStreamer:
         fetch, never under the client that merely asked.
 
         ``force_refresh`` skips the cache, which is what the retry path needs
-        after a stale reference was rejected.
+        after a stale reference was rejected. ``preferred_client`` asks a
+        specific session to do the read - the retry path rotates to the other
+        client so a rejected reference is not simply reproduced.
         """
         now = time.time()
         cache_key = (id(self.client), message_id)
+        use_cache = not force_refresh and (
+            preferred_client is None or preferred_client is self.client
+        )
 
-        if not force_refresh:
+        if use_cache:
             async with _MSG_LOCK:
                 if cache_key in _GLOBAL_MSG_CACHE:
                     ts, message = _GLOBAL_MSG_CACHE[cache_key]
@@ -83,13 +109,10 @@ class ByteStreamer:
                         return message, self.client
                     _GLOBAL_MSG_CACHE.pop(cache_key, None)
 
-        fetch_clients = [self.client]
-        try:
-            from Thunder.bot import StreamBot
-            if StreamBot and StreamBot is not self.client:
-                fetch_clients.append(StreamBot)
-        except Exception:
-            pass
+        fetch_clients: list[Client] = [preferred_client or self.client]
+        for candidate in (self.client, primary_client()):
+            if candidate is not None and candidate not in fetch_clients:
+                fetch_clients.append(candidate)
 
         last_error: Exception | None = None
         for fetch_client in fetch_clients:
@@ -162,13 +185,16 @@ class ByteStreamer:
             # this client could not read BIN_CHANNEL itself.
             stream_client = self.client
             force_refresh = False
+            preferred_client: Optional[Client] = None
             retry_count = 0
             while retry_count < max_retries:
                 try:
                     if target is None:
                         if isinstance(ref, int):
                             target, stream_client = await self.get_message_with_owner(
-                                ref, force_refresh=force_refresh
+                                ref,
+                                force_refresh=force_refresh,
+                                preferred_client=preferred_client
                             )
                         else:
                             target, stream_client = ref, self.client
@@ -206,19 +232,28 @@ class ByteStreamer:
                     if _is_file_reference_error(e):
                         # Telegram hands out a file reference that only the
                         # session which fetched the message can use, and it can
-                        # expire. Drop the cached Message and re-read it with the
-                        # streaming client, then retry the same chunk.
+                        # expire. Drop the cached Message, rotate to the other
+                        # session so a rejected reference is not reproduced, and
+                        # retry the same chunk.
                         retry_count += 1
                         last_error = e
+                        if media_id is not None:
+                            invalidate_cached_message(media_id)
+
+                        others = [
+                            candidate for candidate in (self.client, primary_client())
+                            if candidate is not None and candidate is not stream_client
+                        ]
+                        preferred_client = others[0] if others else None
+                        force_refresh = True
+                        target = None
+
                         logger.warning(
                             f"Stale file reference for message {media_id} at chunk "
                             f"{current_offset} (attempt {retry_count}/{max_retries}): "
-                            f"refreshing the message and retrying"
+                            f"reference came from {_client_label(stream_client)}, "
+                            f"retrying with {_client_label(preferred_client or stream_client)}"
                         )
-                        if media_id is not None:
-                            invalidate_cached_message(media_id)
-                        force_refresh = True
-                        target = None
                         await asyncio.sleep(0.25 * retry_count)
                         continue
 
