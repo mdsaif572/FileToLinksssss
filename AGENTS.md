@@ -72,6 +72,21 @@ Two-tier deque system in `rate_limiter.py`:
 
 Copy `config_sample.env` → `config.env`. Required vars: `API_ID`, `API_HASH`, `BOT_TOKEN`, `BIN_CHANNEL`, `DATABASE_URL`.
 
+## File references (streaming)
+
+Telegram file references are bound to the session that fetched the message, and
+they expire. Two rules keep `/f/...` and `/{id}?hash=...` streaming alive:
+
+- Read the BIN_CHANNEL message with the client that will stream it
+  (`ByteStreamer.get_message`) and fall back to `StreamBot` only if that read
+  fails. The message cache in `Thunder/utils/custom_dl.py` is keyed by
+  `(id(client), message_id)` and is written under the client that fetched — a
+  message fetched by one client must never be streamed by another, or Telegram
+  answers `400 FILE_REFERENCE_EXPIRED`.
+- On a `FILE_REFERENCE_*` error, drop the cached message and re-read it with the
+  streaming client, then retry the same chunk (`stream_file`). Never treat it as
+  a permanent failure on the first attempt.
+
 ## Debugging
 
 - Logs: `Thunder/logs/bot.txt`
