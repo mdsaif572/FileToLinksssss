@@ -18,9 +18,10 @@ from Thunder.utils.canonical_files import (
     get_file_by_hash,
     update_cached_file_id,
 )
-from Thunder.utils.custom_dl import ByteStreamer
+from Thunder.utils.custom_dl import ByteStreamer, client_label
 from Thunder.utils.file_properties import get_media
 from Thunder.utils.logger import logger
+from Thunder.utils.metrics import metrics
 from Thunder.utils.render_template import render_media_page, render_page
 from Thunder.utils.time_format import get_readable_time
 from Thunder.vars import Var
@@ -30,6 +31,7 @@ routes = web.RouteTableDef()
 SECURE_HASH_LENGTH = 6
 CHUNK_SIZE = 1024 * 1024
 MAX_CONCURRENT_PER_CLIENT = getattr(Var, "MAX_CONCURRENT_PER_CLIENT", 16)
+MAX_CONCURRENT_PER_USER = getattr(Var, "MAX_CONCURRENT_PER_USER", 3)
 OVERLOAD_RETRY_AFTER_SECONDS = 2
 RANGE_REGEX = re.compile(r"^bytes=(?P<start>\d*)-(?P<end>\d*)$")
 PATTERN_HASH_FIRST = re.compile(
@@ -47,6 +49,49 @@ CORS_HEADERS = {
 }
 
 streamers = {}
+
+
+class UserStreamLimiter:
+    """Caps how many streams one uploader (or one caller IP) may hold open.
+
+    Without a cap a single browser or download manager can occupy every slot of
+    every Telegram client and everyone else gets 503.
+    """
+
+    def __init__(self, limit: int) -> None:
+        self.limit = int(limit)
+        self._active: dict = {}
+
+    @property
+    def enabled(self) -> bool:
+        return self.limit > 0
+
+    def acquire(self, key) -> bool:
+        if not self.enabled or key is None:
+            return True
+        current = self._active.get(key, 0)
+        if current >= self.limit:
+            return False
+        self._active[key] = current + 1
+        return True
+
+    def release(self, key) -> None:
+        if not self.enabled or key is None:
+            return
+        current = self._active.get(key, 0) - 1
+        if current <= 0:
+            self._active.pop(key, None)
+        else:
+            self._active[key] = current
+
+    def active(self, key) -> int:
+        return self._active.get(key, 0)
+
+    def total(self) -> int:
+        return sum(self._active.values())
+
+
+user_streams = UserStreamLimiter(MAX_CONCURRENT_PER_USER)
 
 
 def get_streamer(client_id: int) -> ByteStreamer:
@@ -229,6 +274,7 @@ async def _serve_media_response(
     # Initialize the generator and pre-fetch the first chunk BEFORE committing headers.
     # This guarantees that MTProto connection is established and data is ready,
     # preventing Heroku H15 Idle Connection (55s) timeouts before data arrives.
+    metrics.record_stream_started()
     stream_gen = streamer.stream_file(
         media_ref,
         offset=start,
@@ -249,6 +295,7 @@ async def _serve_media_response(
         # negative, which then defeats the capacity gate in
         # select_optimal_client() and shows up as negative numbers in /status.
         logger.error(f"Failed to fetch initial chunk for {filename}: {e}", exc_info=True)
+        metrics.record_error("stream", str(e), client=client_label(streamer.client))
         raise web.HTTPServiceUnavailable(
             text="Media stream temporarily unavailable. Please retry shortly.",
             headers={"Retry-After": "2", **CORS_HEADERS}
@@ -280,6 +327,7 @@ async def _serve_media_response(
                 try:
                     await response.write(first_chunk)
                     bytes_sent += len(first_chunk)
+                    metrics.record_bytes(len(first_chunk))
                 except (
                     ConnectionResetError,
                     ConnectionError,
@@ -288,6 +336,7 @@ async def _serve_media_response(
                     asyncio.CancelledError,
                 ):
                     logger.debug(f"Client disconnected early while streaming {filename}")
+                    metrics.record_client_disconnect()
                     return response
 
         if bytes_sent < content_length:
@@ -307,6 +356,7 @@ async def _serve_media_response(
                     try:
                         await response.write(chunk)
                         bytes_sent += len(chunk)
+                        metrics.record_bytes(len(chunk))
                     except (
                         ConnectionResetError,
                         ConnectionError,
@@ -327,6 +377,7 @@ async def _serve_media_response(
         asyncio.CancelledError,
     ):
         logger.debug(f"Client stream cancelled for {filename}")
+        metrics.record_client_disconnect()
     except Exception as e:
         err_str = str(e).lower()
         if "closing transport" in err_str or "connection lost" in err_str or "connection reset" in err_str:
@@ -337,6 +388,7 @@ async def _serve_media_response(
     finally:
         work_loads[client_id] -= 1
 
+    metrics.record_stream_completed()
     return response
 
 
@@ -360,13 +412,18 @@ async def status_endpoint(request):
                 "uptime": get_readable_time(uptime)
             },
             "telegram_bot": {
-                "username": f"@{StreamBot.username}",
+                "username": f"@{getattr(StreamBot, 'username', None) or 'unknown'}",
                 "active_clients": len(multi_clients)
             },
             "resources": {
                 "total_workload": total_load,
-                "workload_distribution": workload_distribution
-            }
+                "workload_distribution": workload_distribution,
+                "per_user_streams": {
+                    "limit": user_streams.limit,
+                    "active": user_streams.total(),
+                },
+            },
+            "metrics": metrics.snapshot()
         },
         headers={"Access-Control-Allow-Origin": "*"}
     )
@@ -465,47 +522,61 @@ async def canonical_media_delivery(request: web.Request):
         client_id, streamer = select_optimal_client()
         work_loads[client_id] += 1
 
-        try:
-            _resolve_unique_id(file_record)
-            media_ref = int(file_record["canonical_message_id"])
-            fallback_message_id = int(file_record["canonical_message_id"])
-
-            async def persist_refreshed_file_id(message):
-                if client_id != 0:
-                    return
-                media = get_media(message)
-                new_file_id = getattr(media, "file_id", None) if media else None
-                if new_file_id and new_file_id != file_record.get("file_id"):
-                    try:
-                        await update_cached_file_id(file_record, new_file_id)
-                    except Exception as e:
-                        logger.warning(
-                            f"Failed to refresh cached file_id for canonical file {secure_hash}: {e}",
-                            exc_info=True
-                        )
-
-            return await _serve_media_response(
-                request,
-                file_info=file_record,
-                streamer=streamer,
-                client_id=client_id,
-                media_ref=media_ref,
-                fallback_message_id=fallback_message_id,
-                on_fallback_message=persist_refreshed_file_id
+        user_key = file_record.get("first_source_chat_id") or request.remote
+        if not user_streams.acquire(user_key):
+            work_loads[client_id] -= 1
+            metrics.record_error("rate_limit",
+                                 f"per-user stream cap reached for {user_key}")
+            raise web.HTTPTooManyRequests(
+                text=("You already have the maximum number of simultaneous streams. "
+                      "Close one and retry."),
+                headers={"Retry-After": str(OVERLOAD_RETRY_AFTER_SECONDS), **CORS_HEADERS},
             )
-        except (FileNotFound, InvalidHash):
-            work_loads[client_id] -= 1
-            raise
-        except web.HTTPException as e:
-            work_loads[client_id] -= 1
-            logger.debug(f"Client HTTP error in canonical stream: {e}")
-            raise
-        except Exception as e:
-            work_loads[client_id] -= 1
-            error_id = secrets.token_hex(6)
-            logger.error(f"Canonical stream error {error_id}: {e}", exc_info=True)
-            raise web.HTTPInternalServerError(
-                text=f"Server error during streaming: {error_id}") from e
+
+        try:
+            try:
+                _resolve_unique_id(file_record)
+                media_ref = int(file_record["canonical_message_id"])
+                fallback_message_id = int(file_record["canonical_message_id"])
+
+                async def persist_refreshed_file_id(message):
+                    if client_id != 0:
+                        return
+                    media = get_media(message)
+                    new_file_id = getattr(media, "file_id", None) if media else None
+                    if new_file_id and new_file_id != file_record.get("file_id"):
+                        try:
+                            await update_cached_file_id(file_record, new_file_id)
+                        except Exception as e:
+                            logger.warning(
+                                f"Failed to refresh cached file_id for canonical file {secure_hash}: {e}",
+                                exc_info=True
+                            )
+
+                return await _serve_media_response(
+                    request,
+                    file_info=file_record,
+                    streamer=streamer,
+                    client_id=client_id,
+                    media_ref=media_ref,
+                    fallback_message_id=fallback_message_id,
+                    on_fallback_message=persist_refreshed_file_id
+                )
+            except (FileNotFound, InvalidHash):
+                work_loads[client_id] -= 1
+                raise
+            except web.HTTPException as e:
+                work_loads[client_id] -= 1
+                logger.debug(f"Client HTTP error in canonical stream: {e}")
+                raise
+            except Exception as e:
+                work_loads[client_id] -= 1
+                error_id = secrets.token_hex(6)
+                logger.error(f"Canonical stream error {error_id}: {e}", exc_info=True)
+                raise web.HTTPInternalServerError(
+                    text=f"Server error during streaming: {error_id}") from e
+        finally:
+            user_streams.release(user_key)
     except (InvalidHash, FileNotFound) as e:
         logger.debug(f"Canonical client error: {type(e).__name__} - {e}", exc_info=True)
         raise web.HTTPNotFound(text="Resource not found") from e
@@ -529,36 +600,49 @@ async def media_delivery(request: web.Request):
 
         work_loads[client_id] += 1
 
-        try:
-            file_info = await streamer.get_file_info(message_id)
-            unique_id = _resolve_unique_id(file_info)
-
-            if unique_id[:SECURE_HASH_LENGTH] != secure_hash:
-                raise InvalidHash(
-                    "Provided hash does not match file's unique ID.")
-            return await _serve_media_response(
-                request,
-                file_info=file_info,
-                streamer=streamer,
-                client_id=client_id,
-                media_ref=message_id
+        user_key = request.remote
+        if not user_streams.acquire(user_key):
+            work_loads[client_id] -= 1
+            metrics.record_error("rate_limit", f"per-user stream cap reached for {user_key}")
+            raise web.HTTPTooManyRequests(
+                text=("You already have the maximum number of simultaneous streams. "
+                      "Close one and retry."),
+                headers={"Retry-After": str(OVERLOAD_RETRY_AFTER_SECONDS), **CORS_HEADERS},
             )
 
-        except (FileNotFound, InvalidHash):
-            work_loads[client_id] -= 1
-            raise
-        except web.HTTPException as e:
-            work_loads[client_id] -= 1
-            logger.debug(f"Client HTTP error in media stream: {e}")
-            raise
-        except Exception as e:
-            work_loads[client_id] -= 1
-            error_id = secrets.token_hex(6)
-            logger.error(
-                f"Stream error {error_id}: {e}",
-                exc_info=True)
-            raise web.HTTPInternalServerError(
-                text=f"Server error during streaming: {error_id}") from e
+        try:
+            try:
+                file_info = await streamer.get_file_info(message_id)
+                unique_id = _resolve_unique_id(file_info)
+
+                if unique_id[:SECURE_HASH_LENGTH] != secure_hash:
+                    raise InvalidHash(
+                        "Provided hash does not match file's unique ID.")
+                return await _serve_media_response(
+                    request,
+                    file_info=file_info,
+                    streamer=streamer,
+                    client_id=client_id,
+                    media_ref=message_id
+                )
+
+            except (FileNotFound, InvalidHash):
+                work_loads[client_id] -= 1
+                raise
+            except web.HTTPException as e:
+                work_loads[client_id] -= 1
+                logger.debug(f"Client HTTP error in media stream: {e}")
+                raise
+            except Exception as e:
+                work_loads[client_id] -= 1
+                error_id = secrets.token_hex(6)
+                logger.error(
+                    f"Stream error {error_id}: {e}",
+                    exc_info=True)
+                raise web.HTTPInternalServerError(
+                    text=f"Server error during streaming: {error_id}") from e
+        finally:
+            user_streams.release(user_key)
 
     except (InvalidHash, FileNotFound) as e:
         logger.debug(f"Client error: {type(e).__name__} - {e}", exc_info=True)

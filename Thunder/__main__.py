@@ -33,6 +33,7 @@ from Thunder.utils.keepalive import ping_server
 from Thunder.utils.canonical_files import drain_background_touch_tasks
 from Thunder.utils.logger import logger
 from Thunder.utils.messages import MSG_ADMIN_RESTART_DONE
+from Thunder.utils.metrics import FailureAlerter, metrics
 from Thunder.utils.rate_limiter import rate_limiter, request_executor
 
 from Thunder.vars import Var
@@ -210,6 +211,7 @@ async def start_services():
         )
         return
 
+    alert_task = None
     print("   ▶ Starting Web Server initialization...")
     try:
         app_runner = web.AppRunner(await web_server())
@@ -222,6 +224,21 @@ async def start_services():
             ping_server(), name="keepalive_task"
         )
         print("   ✓ Keep-alive service started")
+
+        if Var.ALERT_ON_STREAM_FAILURES and Var.OWNER_ID:
+            alert_task = asyncio.create_task(
+                FailureAlerter(
+                    metrics,
+                    threshold=Var.STREAM_FAILURE_ALERT_THRESHOLD,
+                    window_seconds=Var.STREAM_FAILURE_ALERT_WINDOW_MINUTES * 60,
+                ).watch(
+                    StreamBot, Var.OWNER_ID,
+                    on_error=lambda err: logger.warning(
+                        f"Could not send stream failure alert: {err}")
+                ),
+                name="stream_failure_alerter",
+            )
+            print("   ✓ Stream failure alerting enabled")
 
     except Exception as e:
         logger.error(f"   ✖ Failed to start Web Server: {e}", exc_info=True)
@@ -266,6 +283,8 @@ async def start_services():
         request_executor_task,
         keepalive_task
     ]
+    if alert_task is not None:
+        background_tasks.append(alert_task)
 
     try:
         await idle()

@@ -23,6 +23,7 @@ from Thunder.utils.broadcast import broadcast_message
 from Thunder.utils.database import db
 from Thunder.utils.human_readable import humanbytes
 from Thunder.utils.logger import LOG_FILE, logger
+from Thunder.utils.metrics import metrics
 from Thunder.utils.messages import (
     MSG_ADMIN_AUTH_LIST_HEADER, MSG_ADMIN_NO_BAN_REASON,
     MSG_ADMIN_USER_BANNED, MSG_ADMIN_USER_UNBANNED, MSG_AUTHORIZE_FAILED,
@@ -119,6 +120,7 @@ async def show_status(client: Client, message: Message):
             uptime=uptime_str, active_bots=len(multi_clients),
             total_workload=total_workload, workload_items=workload_items,
             version=__version__)
+        status_text_str = f"{status_text_str}\n\n{metrics.format_report()}"
         await reply(message,
                     text=status_text_str,
                     parse_mode=ParseMode.MARKDOWN,

@@ -14,6 +14,7 @@ from pyrogram.types import Message
 from Thunder.server.exceptions import FileNotFound
 from Thunder.utils.file_properties import get_media
 from Thunder.utils.logger import logger
+from Thunder.utils.metrics import metrics
 from Thunder.vars import Var
 
 _MSG_CACHE_TTL = 300  # 5 minutes
@@ -56,7 +57,7 @@ def primary_client() -> Optional[Client]:
         return None
 
 
-def _client_label(client: Optional[Client]) -> str:
+def client_label(client: Optional[Client]) -> str:
     """Readable client name for logs - the point is telling sessions apart."""
     if client is None:
         return "none"
@@ -105,9 +106,12 @@ class ByteStreamer:
                     ts, message = _GLOBAL_MSG_CACHE[cache_key]
                     if now - ts < _MSG_CACHE_TTL:
                         _GLOBAL_MSG_CACHE.move_to_end(cache_key)
+                        metrics.record_message_cache(hit=True)
                         # A hit on this key means this very client fetched it.
                         return message, self.client
                     _GLOBAL_MSG_CACHE.pop(cache_key, None)
+
+        metrics.record_message_cache(hit=False)
 
         fetch_clients: list[Client] = [preferred_client or self.client]
         for candidate in (self.client, primary_client()):
@@ -237,6 +241,9 @@ class ByteStreamer:
                         # retry the same chunk.
                         retry_count += 1
                         last_error = e
+                        metrics.record_error(
+                            "reference", str(e), client=client_label(stream_client)
+                        )
                         if media_id is not None:
                             invalidate_cached_message(media_id)
 
@@ -251,8 +258,8 @@ class ByteStreamer:
                         logger.warning(
                             f"Stale file reference for message {media_id} at chunk "
                             f"{current_offset} (attempt {retry_count}/{max_retries}): "
-                            f"reference came from {_client_label(stream_client)}, "
-                            f"retrying with {_client_label(preferred_client or stream_client)}"
+                            f"reference came from {client_label(stream_client)}, "
+                            f"retrying with {client_label(preferred_client or stream_client)}"
                         )
                         await asyncio.sleep(0.25 * retry_count)
                         continue

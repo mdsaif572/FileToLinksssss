@@ -16,7 +16,9 @@ Run with::
     python -m unittest discover -s tests -t .
 """
 
+import asyncio
 import os
+import types
 import unittest
 
 os.environ.setdefault("API_ID", "123456")
@@ -29,8 +31,9 @@ os.environ.setdefault("DATABASE_URL", "mongodb://127.0.0.1:27017/test")
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
-from Thunder.bot import work_loads
+from Thunder.bot import StreamBot, work_loads
 from Thunder.server import stream_routes as sr
+from Thunder.utils.metrics import metrics
 
 CHUNK = 1024 * 1024
 FILE_SIZE = 3 * CHUNK + 1234
@@ -54,6 +57,8 @@ class FakeStreamer:
     def __init__(self, data, fail=False):
         self.data = data
         self.fail = fail
+        # the real ByteStreamer exposes the client it streams with
+        self.client = types.SimpleNamespace(name="fake")
         self.info = {
             "message_id": 7,
             "file_size": len(data),
@@ -89,6 +94,7 @@ class StreamWorkloadTest(unittest.IsolatedAsyncioTestCase):
 
         work_loads.clear()
         work_loads[0] = 0
+        StreamBot.username = "test_bot"
 
         app = web.Application()
         app.add_routes(sr.routes)
@@ -137,6 +143,24 @@ class StreamWorkloadTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(int(resp.headers["Content-Length"]), FILE_SIZE)
         self.assertLoadReleased()
 
+    async def test_metrics_count_the_stream(self):
+        before = metrics.snapshot()["streams"]
+        async with self.client.get(MEDIA_URL) as resp:
+            await resp.read()
+
+        after = metrics.snapshot()["streams"]
+        self.assertEqual(after["started"], before["started"] + 1)
+        self.assertEqual(after["completed"], before["completed"] + 1)
+        self.assertEqual(after["bytes_served"], before["bytes_served"] + FILE_SIZE)
+
+    async def test_status_endpoint_exposes_metrics(self):
+        async with self.client.get("/status") as resp:
+            data = await resp.json()
+
+        self.assertIn("metrics", data)
+        self.assertIn("streams", data["metrics"])
+        self.assertIn("per_user_streams", data["resources"])
+
     async def test_stream_failure_returns_503_and_releases_load_once(self):
         sr.select_optimal_client = lambda: (0, FakeStreamer(self.data, fail=True))
         async with self.client.get(MEDIA_URL) as resp:
@@ -162,6 +186,74 @@ class ClientSelectionTest(unittest.IsolatedAsyncioTestCase):
             sr.multi_clients.pop(0, None)
             sr.multi_clients.pop(1, None)
             sr.streamers.clear()
+
+
+class BlockingStreamer(FakeStreamer):
+    """Keeps the first chunk in flight until the test releases it."""
+
+    def __init__(self, data):
+        super().__init__(data)
+        self.release = asyncio.Event()
+
+    async def stream_file(self, media_ref, offset=0, limit=0,
+                          fallback_message_id=None, on_fallback_message=None):
+        await self.release.wait()
+        async for chunk in super().stream_file(
+            media_ref, offset=offset, limit=limit,
+            fallback_message_id=fallback_message_id,
+            on_fallback_message=on_fallback_message
+        ):
+            yield chunk
+
+
+class PerUserStreamCapTest(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.data = make_data()
+        self.streamer = BlockingStreamer(self.data)
+        self._original_select = sr.select_optimal_client
+        self._original_limiter = sr.user_streams
+        sr.select_optimal_client = lambda: (0, self.streamer)
+        sr.user_streams = sr.UserStreamLimiter(1)
+
+        work_loads.clear()
+        work_loads[0] = 0
+
+        app = web.Application()
+        app.add_routes(sr.routes)
+        self.client = TestClient(TestServer(app))
+        await self.client.start_server()
+
+    async def asyncTearDown(self):
+        self.streamer.release.set()
+        await self.client.close()
+        sr.select_optimal_client = self._original_select
+        sr.user_streams = self._original_limiter
+
+    async def test_second_stream_from_the_same_caller_is_rejected(self):
+        in_flight = asyncio.create_task(self.client.get(MEDIA_URL))
+        await asyncio.sleep(0.05)  # let the first request take its slot
+
+        async with self.client.get(MEDIA_URL) as second:
+            self.assertEqual(second.status, 429)
+            self.assertIn("Retry-After", second.headers)
+
+        self.streamer.release.set()
+        first = await in_flight
+        self.assertEqual(first.status, 200)
+        await first.read()
+
+        self.assertEqual(
+            sr.user_streams.total(), 0,
+            "the per-user slot must be released when the stream ends"
+        )
+
+    async def test_disabled_limiter_lets_everything_through(self):
+        sr.user_streams = sr.UserStreamLimiter(0)
+        self.streamer.release.set()
+
+        async with self.client.get(MEDIA_URL) as resp:
+            self.assertEqual(resp.status, 200)
+            await resp.read()
 
 
 if __name__ == "__main__":
