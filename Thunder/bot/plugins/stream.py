@@ -90,8 +90,7 @@ async def send_channel_links(
         if target_msg:
             await target_msg.reply_text(
                 text,
-                disable_web_page_preview=True,
-                quote=True
+                disable_web_page_preview=True
             )
         else:
             await StreamBot.send_message(
@@ -111,8 +110,7 @@ async def send_channel_links(
         if target_msg:
             await target_msg.reply_text(
                 text,
-                disable_web_page_preview=True,
-                quote=True
+                disable_web_page_preview=True
             )
         else:
             await StreamBot.send_message(
@@ -190,7 +188,6 @@ async def send_link(msg: Message, links: Dict[str, Any]):
                 download_link=links['online_link'],
                 stream_link=links['stream_link']
             ),
-            quote=True,
             parse_mode=enums.ParseMode.MARKDOWN,
             disable_web_page_preview=True,
             reply_markup=get_link_buttons(links)
@@ -204,7 +201,6 @@ async def send_link(msg: Message, links: Dict[str, Any]):
                 download_link=links['online_link'],
                 stream_link=links['stream_link']
             ),
-            quote=True,
             parse_mode=enums.ParseMode.MARKDOWN,
             disable_web_page_preview=True,
             reply_markup=get_link_buttons(links)
@@ -224,8 +220,7 @@ async def link_handler(bot: Client, msg: Message, **kwargs):
                     MSG_ERROR_START_BOT.format(invite_link=invite_link),
                     disable_web_page_preview=True,
                     parse_mode=enums.ParseMode.MARKDOWN,
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(MSG_BUTTON_START_CHAT, url=invite_link)]]),
-                    quote=True
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(MSG_BUTTON_START_CHAT, url=invite_link)]])
                 )
             except FloodWait as e:
                 await asyncio.sleep(e.value)
@@ -233,8 +228,7 @@ async def link_handler(bot: Client, msg: Message, **kwargs):
                     MSG_ERROR_START_BOT.format(invite_link=invite_link),
                     disable_web_page_preview=True,
                     parse_mode=enums.ParseMode.MARKDOWN,
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(MSG_BUTTON_START_CHAT, url=invite_link)]]),
-                    quote=True
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(MSG_BUTTON_START_CHAT, url=invite_link)]])
                 )
             return
 
@@ -266,10 +260,10 @@ async def link_handler(bot: Client, msg: Message, **kwargs):
                 return
 
         try:
-            status_msg = await message.reply_text(MSG_PROCESSING_REQUEST, quote=True)
+            status_msg = await message.reply_text(MSG_PROCESSING_REQUEST)
         except FloodWait as e:
             await asyncio.sleep(e.value)
-            status_msg = await message.reply_text(MSG_PROCESSING_REQUEST, quote=True)
+            status_msg = await message.reply_text(MSG_PROCESSING_REQUEST)
         shortener_val = handler_kwargs.get('shortener', shortener_val)
         if num_files == 1:
             await process_single(client, message, message.reply_to_message, status_msg, shortener_val, notification_msg=notification_msg)
@@ -298,10 +292,10 @@ async def private_receive_handler(bot: Client, msg: Message, **kwargs):
 
         await log_newusr(client, message.from_user.id, message.from_user.first_name or "")
         try:
-            status_msg = await message.reply_text(MSG_PROCESSING_FILE, quote=True)
+            status_msg = await message.reply_text(MSG_PROCESSING_FILE)
         except FloodWait as e:
             await asyncio.sleep(e.value)
-            status_msg = await message.reply_text(MSG_PROCESSING_FILE, quote=True)
+            status_msg = await message.reply_text(MSG_PROCESSING_FILE)
         await process_single(client, message, message, status_msg, shortener_val, notification_msg=notification_msg)
 
     await handle_rate_limited_request(bot, msg, _actual_private_receive_handler, **kwargs)
@@ -621,7 +615,6 @@ async def process_batch(
         try:
             await msg.reply_text(
                 chunk_text,
-                quote=True,
                 disable_web_page_preview=True,
                 parse_mode=enums.ParseMode.HTML
             )
@@ -629,7 +622,6 @@ async def process_batch(
             await asyncio.sleep(e.value)
             await msg.reply_text(
                 chunk_text,
-                quote=True,
                 disable_web_page_preview=True,
                 parse_mode=enums.ParseMode.HTML
             )

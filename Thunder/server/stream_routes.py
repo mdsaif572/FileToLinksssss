@@ -255,8 +255,18 @@ async def _serve_media_response(
                 chunk = chunk[:remaining]
 
             if chunk:
-                await response.write(chunk)
-                bytes_sent += len(chunk)
+                try:
+                    await response.write(chunk)
+                    bytes_sent += len(chunk)
+                except (
+                    ConnectionResetError,
+                    ConnectionError,
+                    BrokenPipeError,
+                    ClientConnectionResetError,
+                    asyncio.CancelledError,
+                ):
+                    logger.debug(f"Client disconnected early while streaming {filename}")
+                    return response
 
             if bytes_sent >= content_length:
                 break
@@ -267,12 +277,13 @@ async def _serve_media_response(
         ClientConnectionResetError,
         asyncio.CancelledError,
     ):
-        logger.debug(f"Client disconnected early while streaming {filename}")
+        logger.debug(f"Client stream cancelled for {filename}")
     except Exception as e:
         err_str = str(e).lower()
         if "closing transport" in err_str or "connection lost" in err_str or "connection reset" in err_str:
             logger.debug(f"Client transport closed while streaming {filename}")
         else:
+            logger.error(f"Error streaming {filename}: {e}", exc_info=True)
             raise
     finally:
         work_loads[client_id] -= 1

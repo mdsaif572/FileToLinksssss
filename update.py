@@ -29,6 +29,76 @@ def run_cmd(cmd: str) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, shell=True, capture_output=True, text=True)
 
 
+def update_via_archive() -> int:
+    import io
+    import tarfile
+    import urllib.request
+
+    if not UPSTREAM_REPO:
+        return 0
+
+    clean_repo = UPSTREAM_REPO.rstrip('/')
+    if clean_repo.endswith('.git'):
+        clean_repo = clean_repo[:-4]
+
+    archive_url = f"{clean_repo}/archive/refs/heads/{UPSTREAM_BRANCH}.tar.gz"
+    log_info(f'Fetching latest code via GitHub archive: {archive_url}...')
+
+    config_backup = '.config.env.bak'
+    has_config = opath.exists('config.env')
+
+    try:
+        if has_config:
+            shutil.copy2('config.env', config_backup)
+
+        req = urllib.request.Request(
+            archive_url,
+            headers={'User-Agent': 'CloudStation-Updater/2.1.0'}
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            if resp.status != 200:
+                log_error(f'Failed to download upstream archive: HTTP {resp.status}')
+                return 1
+            archive_bytes = resp.read()
+
+        with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode='r:gz') as tar:
+            members = tar.getmembers()
+            if not members:
+                log_error('Empty archive received from upstream repository.')
+                return 1
+
+            top_dir = members[0].name.split('/')[0]
+            for member in members:
+                parts = member.name.split('/')
+                if len(parts) <= 1 or parts[0] != top_dir:
+                    continue
+                rel_path = '/'.join(parts[1:])
+                if not rel_path or rel_path == 'config.env':
+                    continue
+
+                target_path = opath.abspath(rel_path)
+                if member.isdir():
+                    os.makedirs(target_path, exist_ok=True)
+                elif member.isfile():
+                    os.makedirs(opath.dirname(target_path), exist_ok=True)
+                    with tar.extractfile(member) as src_f, open(target_path, 'wb') as dst_f:
+                        shutil.copyfileobj(src_f, dst_f)
+
+        log_info(f'Successfully updated and synchronized with upstream archive (branch: {UPSTREAM_BRANCH})')
+        os.environ['UPSTREAM_SYNCED'] = '1'
+        return 0
+    except Exception as e:
+        log_error(f'Archive fallback update failed: {e}')
+        return 1
+    finally:
+        if has_config and opath.exists(config_backup):
+            try:
+                shutil.copy2(config_backup, 'config.env')
+                os.remove(config_backup)
+            except Exception as e:
+                log_warning(f'Could not restore config.env backup: {e}')
+
+
 def update_codebase() -> int:
     if not UPSTREAM_REPO:
         log_info('No UPSTREAM_REPO configured. Booting from local codebase.')
@@ -38,8 +108,8 @@ def update_codebase() -> int:
 
     git_check = run_cmd('git --version')
     if git_check.returncode != 0:
-        log_warning('Git is not installed or not available in PATH. Skipping upstream update.')
-        return 1
+        log_info('Git binary not available in PATH. Using direct archive sync fallback...')
+        return update_via_archive()
 
     config_backup = '.config.env.bak'
     has_config = opath.exists('config.env')
