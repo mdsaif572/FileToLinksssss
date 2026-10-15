@@ -37,6 +37,7 @@ async def _can_read_bin_channel(client, label: str) -> bool:
         return False
 
     print(f"   ✓ {label} can read BIN_CHANNEL")
+    logger.info(f"   ✓ {label} can read BIN_CHANNEL")
     return True
 
 
@@ -72,6 +73,8 @@ async def initialize_clients():
         print("   ▶ Primary client will be used.")
         return
 
+    skipped_clients = []
+
     async def start_client(client_id, token):
         try:
             if client_id == len(all_tokens):
@@ -93,6 +96,7 @@ async def initialize_clients():
                 await client.start()
 
             if not await _can_read_bin_channel(client, f"Client ID {client_id}"):
+                skipped_clients.append(client_id)
                 try:
                     await client.stop()
                 except Exception as stop_error:
@@ -110,6 +114,13 @@ async def initialize_clients():
     clients = [client for client in clients if client]
 
     multi_clients.update(dict(clients))
+
+    logger.info(
+        f"Streaming pool ready: clients {sorted(multi_clients)} "
+        f"({len(multi_clients)} usable, {len(skipped_clients)} skipped"
+        + (f": {sorted(skipped_clients)}" if skipped_clients else "")
+        + ")"
+    )
     
     if len(multi_clients) > 1:
         Var.MULTI_CLIENT = True
