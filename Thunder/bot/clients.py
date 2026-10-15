@@ -77,7 +77,7 @@ async def initialize_clients():
 
     async def start_client(client_id, token):
         try:
-            if client_id == len(all_tokens):
+            if client_id == max(all_tokens):
                 await asyncio.sleep(2)
             client = Client(
                 api_hash=Var.API_HASH,
@@ -95,7 +95,9 @@ async def initialize_clients():
                 await asyncio.sleep(e.value)
                 await client.start()
 
-            if not await _can_read_bin_channel(client, f"Client ID {client_id}"):
+            username = getattr(getattr(client, "me", None), "username", None)
+            label = f"Client ID {client_id}" + (f" (@{username})" if username else "")
+            if not await _can_read_bin_channel(client, label):
                 skipped_clients.append(client_id)
                 try:
                     await client.stop()
@@ -104,7 +106,7 @@ async def initialize_clients():
                 return None
 
             work_loads[client_id] = 0
-            print(f"   ◎ Client ID {client_id} started")
+            print(f"   ◎ {label} started")
             return client_id, client
         except Exception as e:
             logger.error(f"   ✖ Failed to start Client ID {client_id}. Error: {e}", exc_info=True)
@@ -118,7 +120,8 @@ async def initialize_clients():
     logger.info(
         f"Streaming pool ready: clients {sorted(multi_clients)} "
         f"({len(multi_clients)} usable, {len(skipped_clients)} skipped"
-        + (f": {sorted(skipped_clients)}" if skipped_clients else "")
+        + (f": {sorted(skipped_clients)} - see MULTI_TOKEN<id> in the config"
+           if skipped_clients else "")
         + ")"
     )
     

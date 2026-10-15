@@ -20,16 +20,18 @@ class TokenParser:
             if not multi_tokens:
                 return {}
             
-            sorted_tokens = sorted(
-                multi_tokens.items(),
-                key=lambda item: int(''.join(filter(str.isdigit, item[0])) or 0)
-            )
-            
-            self.tokens = {
-                index + 1: token
-                for index, (_, token) in enumerate(sorted_tokens)
-            }
-            
+            # Keep the MULTI_TOKEN number as the client id. Renumbering the
+            # surviving tokens made every log line and every /status entry
+            # unattributable: "Client ID 28" could be MULTI_TOKEN30 once a lower
+            # slot was empty, so an operator could not tell which bot token a
+            # reported client actually was.
+            parsed: Dict[int, str] = {}
+            for key, token in multi_tokens.items():
+                ordinal = int(''.join(filter(str.isdigit, key)) or 0)
+                if ordinal > 0:
+                    parsed[ordinal] = token
+
+            self.tokens = dict(sorted(parsed.items()))
             return self.tokens
         except Exception as e:
             logger.error(f"Error in parse_from_env: {e}", exc_info=True)
