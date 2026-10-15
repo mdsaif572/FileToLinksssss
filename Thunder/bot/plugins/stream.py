@@ -1,18 +1,24 @@
 # Thunder/bot/plugins/stream.py
 
 import asyncio
+import re
 import secrets
 from typing import Any, Dict, Optional
 
 from pyrogram import Client, enums, filters
-from pyrogram.errors import FloodWait, MessageNotModified, MessageDeleteForbidden, MessageIdInvalid
+from pyrogram.errors import (FloodWait, MessageDeleteForbidden,
+                             MessageIdInvalid, MessageNotModified)
+from pymongo.errors import DuplicateKeyError
 from pyrogram.types import (InlineKeyboardButton, InlineKeyboardMarkup,
                             Message)
 
 from Thunder.bot import StreamBot
-from Thunder.utils.bot_utils import (gen_canonical_links, gen_links, is_admin,
-                                     log_newusr, notify_own, reply_user_err)
-from Thunder.utils.canonical_files import get_or_create_canonical_file
+from Thunder.utils.bot_utils import (filename_from_url, gen_canonical_links,
+                                     gen_links, is_admin, log_newusr,
+                                     notify_own, reply_user_err)
+from Thunder.utils.canonical_files import (build_file_record,
+                                           get_file_by_hash,
+                                           get_or_create_canonical_file)
 from Thunder.utils.database import db
 from Thunder.utils.decorators import (check_banned, get_shortener_status,
                                       require_token)
@@ -22,6 +28,7 @@ from Thunder.utils.messages import (
     MSG_BATCH_LINKS_READY, MSG_BUTTON_DOWNLOAD, MSG_BUTTON_START_CHAT,
     MSG_BUTTON_STREAM_NOW, MSG_CRITICAL_ERROR, MSG_DM_BATCH_PREFIX,
     MSG_DM_SINGLE_PREFIX, MSG_ERROR_DM_FAILED, MSG_ERROR_INVALID_NUMBER,
+    MSG_URL_UPLOAD_FAILED, MSG_URL_UPLOAD_STARTED,
     MSG_ERROR_NO_FILE, MSG_ERROR_NOT_ADMIN, MSG_ERROR_NUMBER_RANGE,
     MSG_ERROR_PROCESSING_MEDIA, MSG_ERROR_REPLY_FILE, MSG_ERROR_START_BOT,
     MSG_LINKS, MSG_NEW_FILE_REQUEST, MSG_PROCESSING_BATCH,
@@ -30,6 +37,8 @@ from Thunder.utils.messages import (
 )
 from Thunder.utils.rate_limiter import handle_rate_limited_request
 from Thunder.vars import Var
+
+URL_UPLOAD_PATTERN = re.compile(r"^\s*https?://\S+\s*$", re.IGNORECASE)
 
 BATCH_SIZE = 10
 LINK_CHUNK_SIZE = 20
@@ -666,3 +675,123 @@ async def process_batch(
         )
     if notification_msg:
         await safe_delete_message(notification_msg)
+
+def looks_like_url(text: Optional[str]) -> bool:
+    """True when the whole message is a single http(s) URL."""
+    return bool(text) and bool(URL_UPLOAD_PATTERN.match(text))
+
+
+async def handle_url_upload(
+    client: Client,
+    message: Message,
+    *,
+    shortener: bool = True
+) -> Optional[Dict[str, Any]]:
+    """Fetch a URL through Telegram, store it in BIN_CHANNEL and link it.
+
+    Telegram itself downloads the URL, so this never fetches user-supplied
+    addresses from our own host.
+    """
+    url = (message.text or "").strip()
+    file_name = filename_from_url(url)
+
+    try:
+        status_msg = await message.reply_text(
+            MSG_URL_UPLOAD_STARTED.format(file_name=file_name))
+    except FloodWait as e:
+        await asyncio.sleep(e.value)
+        status_msg = await message.reply_text(
+            MSG_URL_UPLOAD_STARTED.format(file_name=file_name))
+
+    try:
+        try:
+            stored_message = await client.send_document(
+                chat_id=int(Var.BIN_CHANNEL),
+                document=url,
+                file_name=file_name,
+                disable_notification=True
+            )
+        except FloodWait as e:
+            await asyncio.sleep(e.value)
+            stored_message = await client.send_document(
+                chat_id=int(Var.BIN_CHANNEL),
+                document=url,
+                file_name=file_name,
+                disable_notification=True
+            )
+    except Exception as e:
+        logger.error(f"URL upload failed for {url}: {e}", exc_info=True)
+        try:
+            await status_msg.edit_text(MSG_URL_UPLOAD_FAILED)
+        except Exception:
+            pass
+        return None
+
+    record = build_file_record(
+        stored_message,
+        source_chat_id=message.chat.id if message.chat else None,
+        source_message_id=message.id
+    )
+    if not record:
+        try:
+            await status_msg.edit_text(MSG_URL_UPLOAD_FAILED)
+        except Exception:
+            pass
+        return None
+
+    try:
+        await db.create_file_record(record)
+    except DuplicateKeyError:
+        # the same file is already linked - reuse that link instead
+        existing = await get_file_by_hash(record["public_hash"], raise_on_error=False)
+        record = existing or record
+    except Exception as e:
+        logger.error(f"Could not store canonical record for {url}: {e}", exc_info=True)
+
+    links = await gen_canonical_links(
+        file_name=record["file_name"],
+        file_size=int(record.get("file_size", 0) or 0),
+        public_hash=record["public_hash"],
+        shortener=shortener
+    )
+
+    text = MSG_LINKS.format(
+        file_name=links['media_name'],
+        file_size=links['media_size'],
+        download_link=links['online_link'],
+        stream_link=links['stream_link']
+    )
+    try:
+        await status_msg.edit_text(
+            text, parse_mode=enums.ParseMode.MARKDOWN,
+            reply_markup=get_link_buttons(links), disable_web_page_preview=True)
+    except (FloodWait, MessageNotModified):
+        pass
+    except Exception as e:
+        logger.debug(f"Could not edit the URL upload status message: {e}")
+
+    return links
+
+
+@StreamBot.on_message(
+    filters.private &
+    filters.incoming &
+    filters.text,
+    group=5
+)
+async def url_upload_handler(bot: Client, msg: Message, **kwargs):
+    if not Var.URL_UPLOAD_ENABLED or not looks_like_url(msg.text):
+        return
+
+    async def _actual_url_upload_handler(client: Client, message: Message, **handler_kwargs):
+        shortener_val = await validate_request_common(client, message)
+        if shortener_val is None:
+            return
+        if not message.from_user:
+            return
+
+        await log_newusr(client, message.from_user.id,
+                         message.from_user.first_name or "")
+        await handle_url_upload(client, message, shortener=shortener_val)
+
+    await handle_rate_limited_request(bot, msg, _actual_url_upload_handler, **kwargs)

@@ -78,6 +78,9 @@ class Var:
     # 0 = links never expire; otherwise every new canonical link lives this long
     LINK_TTL_HOURS: int = int(os.getenv("LINK_TTL_HOURS", "0"))
 
+    # Users may send a direct URL and get a Cloud Station link back
+    URL_UPLOAD_ENABLED: bool = str_to_bool(os.getenv("URL_UPLOAD_ENABLED", "True"))
+
     CHANNEL: bool = str_to_bool(os.getenv("CHANNEL", "False"))
 
     BANNED_CHANNELS: Set[int] = str_to_int_set(os.getenv("BANNED_CHANNELS", ""))

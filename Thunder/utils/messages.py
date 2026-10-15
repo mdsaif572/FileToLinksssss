@@ -412,3 +412,20 @@ MSG_REVOKE_INVALID = (
     "❌ `{public_hash}` is not a valid file hash "
     "(expected {hash_length} lowercase hex characters)."
 )
+
+
+MSG_URL_UPLOAD_STARTED = (
+    "📥 **Fetching that link**\n\n"
+    "Telegram is downloading it for me; the upload starts right after.\n"
+    "File: `{file_name}`"
+)
+MSG_URL_UPLOAD_FAILED = (
+    "❌ **Could not fetch that link.**\n\n"
+    "Telegram refused the download - the URL may be private, dead, or too large."
+)
+MSG_MY_STATS = (
+    "📊 **Your Cloud Station stats**\n\n"
+    "> 🔗 Links created: `{files}`\n"
+    "> ⬇️ Downloads served: `{downloads}`\n"
+    "> 📦 Stored: `{size}`"
+)

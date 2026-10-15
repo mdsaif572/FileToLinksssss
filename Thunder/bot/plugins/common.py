@@ -22,6 +22,7 @@ from Thunder.utils.messages import (
     MSG_ABOUT, MSG_BUTTON_ABOUT, MSG_BUTTON_CLOSE, MSG_BUTTON_GET_HELP,
     MSG_BUTTON_GITHUB, MSG_BUTTON_JOIN_CHANNEL, MSG_BUTTON_VIEW_PROFILE,
     MSG_COMMUNITY_CHANNEL, MSG_DC_ANON_ERROR, MSG_DC_FILE_ERROR,
+    MSG_MY_STATS,
     MSG_DC_FILE_INFO, MSG_DC_INVALID_USAGE, MSG_DC_UNKNOWN,
     MSG_ERROR_USER_INFO, MSG_FILE_TYPE_ANIMATION, MSG_FILE_TYPE_AUDIO,
     MSG_FILE_TYPE_DOCUMENT, MSG_FILE_TYPE_PHOTO, MSG_FILE_TYPE_STICKER,
@@ -278,3 +279,26 @@ async def ping_command(bot: Client, msg: Message):
         )
     except MessageNotModified:
         pass
+
+@StreamBot.on_message(filters.command("mystats") & filters.private)
+async def my_stats_command(client: Client, message: Message):
+    """What this user has uploaded through the bot, and how much was fetched."""
+    if not message.from_user:
+        return
+
+    try:
+        stats = await db.get_source_stats(message.from_user.id)
+    except Exception as e:
+        logger.error(f"Error in /mystats for {message.from_user.id}: {e}", exc_info=True)
+        await reply_user_err(message, MSG_DB_ERROR)
+        return
+
+    await reply(
+        message,
+        text=MSG_MY_STATS.format(
+            files=stats["files"],
+            downloads=stats["downloads"],
+            size=humanbytes(stats["bytes"])
+        ),
+        parse_mode=enums.ParseMode.MARKDOWN
+    )

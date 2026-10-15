@@ -4,6 +4,10 @@ import asyncio
 from typing import Any, Dict, Optional
 from urllib.parse import quote
 
+import hashlib
+import re
+import urllib.parse
+
 from pyrogram import Client
 from pyrogram.enums import ButtonStyle, ChatMemberStatus
 from pyrogram.errors import FloodWait
@@ -198,3 +202,17 @@ async def reply(msg: Message, **kwargs):
     except FloodWait as e:
         await asyncio.sleep(e.value)
         return await msg.reply_text(**kwargs, disable_web_page_preview=True)
+
+def filename_from_url(url: str) -> str:
+    """Best-effort file name for a URL, safe for use as an upload name.
+
+    Falls back to a hash-derived name when the URL carries no usable path, and
+    never returns anything with a path separator or a control character in it.
+    """
+    path = urllib.parse.urlparse(url).path
+    name = urllib.parse.unquote(path.rsplit("/", 1)[-1]).strip()
+    name = re.sub(r"[\x00-\x1f/\\]", "_", name).strip(". ")
+    if not name or name in (".", ".."):
+        digest = hashlib.sha256(url.encode("utf-8")).hexdigest()[:8]
+        name = f"download_{digest}"
+    return name[:180]

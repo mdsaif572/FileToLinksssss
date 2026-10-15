@@ -514,6 +514,38 @@ class Database:
                 raise
             return False
 
+    async def get_source_stats(self, source_chat_id: int) -> Dict[str, Any]:
+        """How many links this uploader created, and how often they were used."""
+        empty = {"files": 0, "downloads": 0, "bytes": 0}
+        if source_chat_id is None:
+            return dict(empty)
+        try:
+            cursor = self.files_col.aggregate([
+                {"$match": {"first_source_chat_id": source_chat_id}},
+                {
+                    "$group": {
+                        "_id": None,
+                        "files": {"$sum": 1},
+                        "bytes": {"$sum": {"$ifNull": ["$file_size", 0]}},
+                        "downloads": {"$sum": {"$ifNull": ["$reuse_count", 0]}},
+                    }
+                },
+            ])
+            documents = await cursor.to_list(length=1)
+        except Exception as e:
+            logger.error(f"Error aggregating stats for {source_chat_id}: {e}", exc_info=True)
+            return dict(empty)
+
+        if not documents:
+            return dict(empty)
+
+        document = documents[0]
+        return {
+            "files": int(document.get("files", 0) or 0),
+            "downloads": int(document.get("downloads", 0) or 0),
+            "bytes": int(document.get("bytes", 0) or 0),
+        }
+
     async def close(self):
         if self._client:
             await self._client.close()
