@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+import time
 
 from pyrogram import Client
 from pyrogram.errors import FloodWait
@@ -97,6 +98,21 @@ async def cleanup_clients():
             f"{SHUTDOWN_TIMEOUT_SECONDS:.0f}s; continuing shutdown"
         )
 
+def _log_pool_memory(usable_clients: int) -> None:
+    """Report resident memory once the pool is up (best effort, never fatal)."""
+    try:
+        import psutil
+
+        rss_mb = psutil.Process().memory_info().rss / (1024 * 1024)
+        per_client = rss_mb / usable_clients if usable_clients else 0.0
+        logger.info(
+            f"   process memory: {rss_mb:.0f} MB with {usable_clients} client(s) "
+            f"(~{per_client:.1f} MB each)"
+        )
+    except Exception as e:
+        logger.debug(f"Could not read memory usage: {e}")
+
+
 async def initialize_clients():
     print("╠══════════════════ INITIALIZING CLIENTS ═══════════════════╣")
     multi_clients[0] = StreamBot
@@ -165,6 +181,7 @@ async def initialize_clients():
             logger.error(f"   ✖ Failed to start Client ID {client_id}. Error: {e}", exc_info=True)
             return None
 
+    pool_started_at = time.monotonic()
     start_slots = asyncio.Semaphore(POOL_START_CONCURRENCY)
 
     async def start_bounded(client_id, token):
@@ -177,6 +194,24 @@ async def initialize_clients():
     clients = [client for client in clients if client]
 
     multi_clients.update(dict(clients))
+
+    # Sizing a large pool needs facts, not guesses: the platform gives the
+    # process a limited boot budget and one resident process a memory ceiling.
+    elapsed = time.monotonic() - pool_started_at
+    usable = len(multi_clients)
+    rate = usable / elapsed if elapsed > 0 else 0.0
+    logger.info(
+        f"Pool started {usable} client(s) in {elapsed:.1f}s "
+        f"(concurrency {POOL_START_CONCURRENCY}, {rate:.1f} clients/s)"
+    )
+    _log_pool_memory(usable)
+    if usable and rate > 0:
+        for target in (100, 200, 400):
+            if target > usable:
+                logger.info(
+                    f"   {target} clients at this rate: ~{target / rate:.0f}s of boot "
+                    "time (raise POOL_START_CONCURRENCY if the host allows it)"
+                )
 
     per_channel = {
         channel: sorted(

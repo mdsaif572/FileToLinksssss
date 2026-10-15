@@ -133,6 +133,17 @@ class InitializeClientsTest(unittest.IsolatedAsyncioTestCase):
         multi_clients.clear()
         work_loads.clear()
 
+    async def test_pool_sizing_is_logged_without_failing(self):
+        FakeTokenParser.tokens = {1: "token-one"}
+
+        with mock.patch.object(clients_module, "Client",
+                               side_effect=lambda **kw: FakePoolClient(name=kw.get("bot_token"))):
+            with mock.patch.object(clients_module.asyncio, "sleep", new=_instant_sleep):
+                with mock.patch.object(clients_module, "_log_pool_memory") as memory_log:
+                    await clients_module.initialize_clients()
+
+        memory_log.assert_called_once()
+
     async def test_a_large_pool_still_starts_every_client(self):
         tokens = {index: f"token-{index}" for index in range(1, 31)}
         FakeTokenParser.tokens = tokens
