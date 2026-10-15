@@ -34,6 +34,7 @@
   - [Zero H15 Idle Timeouts & Chunk Pre-fetching](#zero-h15-idle-timeouts--chunk-pre-fetching)
   - [Auto-Sync on Dyno Restart](#auto-sync-on-dyno-restart)
   - [Fair Per-Caller Rate Limiting](#fair-per-caller-rate-limiting)
+- [Web Admin Dashboard](#web-admin-dashboard)
 - [Deployment Guide](#deployment-guide)
   - [Heroku Quick Deploy](#heroku-quick-deploy)
   - [Docker / VPS Deployment](#docker--vps-deployment)
@@ -165,6 +166,7 @@ MULTI_TOKEN3="bot_token_here"
 | `MAX_CONCURRENT_PER_USER` | `8` | Maximum simultaneous streams per viewer IP address. |
 | `LINK_TTL_HOURS` | `0` | Hours before links expire (`0` = never expires). |
 | `URL_UPLOAD_ENABLED` | `"True"` | Enable users to upload files by sending direct URLs. |
+| `WEB_ADMIN_PASSWORD` | `""` | Password for the `/admin` dashboard. Empty = dashboard disabled. |
 | `ALERT_ON_STREAM_FAILURES` | `"True"` | Send Telegram DM to owner when stream errors spike. |
 | `STREAM_FAILURE_ALERT_THRESHOLD`| `5` | Error count required to trigger an alert. |
 | `STREAM_FAILURE_ALERT_WINDOW_MINUTES`| `5` | Time window (minutes) for error threshold count. |
@@ -252,6 +254,24 @@ On boot or restart (`heroku restart`):
 
 ### Fair Per-Caller Rate Limiting
 Instead of throttling by user account (which would unfairly penalize viral files viewed by hundreds of separate people), `MAX_CONCURRENT_PER_USER` tracks concurrent connections per **caller IP address** using trusted proxy headers (`X-Forwarded-For`). Single callers cannot consume all pool threads.
+
+---
+
+## Web Admin Dashboard
+
+Set `WEB_ADMIN_PASSWORD` and open `https://<your-app>/admin` for a live view of the instance. Without the password the page stays disabled and every request to it is refused.
+
+**What it shows** (auto-refreshes every 3 seconds):
+
+- **Streams** — active / served / failed, bytes served, message-cache hit rate.
+- **Bot pool** — every client with its id, Telegram data centre, per-channel access (`✓` / `✗`) and current load; a client that silently lost channel access is visible here immediately.
+- **Active callers** — which IPs hold how many streams, with **one-click ban**. Bans are stored in MongoDB, take effect instantly (no restart), survive a restart, and remain in force even if the database is temporarily unreachable. Blocked requests are refused with `403` before a pool slot is taken.
+- **Banned callers** — unban in one click; access returns immediately.
+- **Last error** — kind, age and detail of the most recent failure.
+
+Sessions are signed cookies valid for 12 hours (`HttpOnly`, `SameSite=Lax`, `Secure` when `HAS_SSL`); the signing key is regenerated per process, so a restart or a password change logs everyone out. Failed logins are throttled per IP.
+
+`GET /healthz` is a public liveness probe (`status`, `version`, client count, active streams) that exposes no configuration — useful for uptime monitors. To verify the dashboard without Telegram credentials, run `python scripts/dashboard_check.py`.
 
 ---
 
