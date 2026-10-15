@@ -10,6 +10,36 @@ from Thunder.utils.config_parser import TokenParser
 from Thunder.utils.logger import logger
 from Thunder.vars import Var
 
+async def _can_read_bin_channel(client, label: str) -> bool:
+    """True when the client can actually read a message from BIN_CHANNEL.
+
+    A client that cannot has no file reference of its own: its requests would
+    either fail with FILE_REFERENCE_EXPIRED or silently fall back to the primary
+    bot's reference, which Telegram rejects for the same reason. Better to leave
+    it out of the pool than to keep a client that only produces errors.
+    """
+    chat = None
+    for _attempt in range(2):
+        try:
+            chat = await client.get_chat(int(Var.BIN_CHANNEL))
+            break
+        except FloodWait as e:
+            await asyncio.sleep(e.value)
+        except Exception as e:
+            logger.warning(
+                f"   ✖ {label} cannot read BIN_CHANNEL ({e}); "
+                "leaving it out of the streaming pool"
+            )
+            return False
+
+    if chat is None:
+        logger.warning(f"   ✖ {label} could not read BIN_CHANNEL; leaving it out")
+        return False
+
+    print(f"   ✓ {label} can read BIN_CHANNEL")
+    return True
+
+
 async def cleanup_clients():
     for client in multi_clients.values():
         try:
@@ -25,7 +55,13 @@ async def initialize_clients():
     print("╠══════════════════ INITIALIZING CLIENTS ═══════════════════╣")
     multi_clients[0] = StreamBot
     work_loads[0] = 0
-    print("   ✓ Primary client initialized")
+    if await _can_read_bin_channel(StreamBot, "Primary client"):
+        print("   ✓ Primary client initialized")
+    else:
+        logger.error(
+            "   ✖ Primary client cannot read BIN_CHANNEL - add it to the channel "
+            "(as admin) or no link will ever stream."
+        )
     try:
         all_tokens = TokenParser().parse_from_env()
         if not all_tokens:
@@ -55,6 +91,14 @@ async def initialize_clients():
             except FloodWait as e:
                 await asyncio.sleep(e.value)
                 await client.start()
+
+            if not await _can_read_bin_channel(client, f"Client ID {client_id}"):
+                try:
+                    await client.stop()
+                except Exception as stop_error:
+                    logger.debug(f"Error stopping unusable client {client_id}: {stop_error}")
+                return None
+
             work_loads[client_id] = 0
             print(f"   ◎ Client ID {client_id} started")
             return client_id, client
