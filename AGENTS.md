@@ -72,6 +72,40 @@ Two-tier deque system in `rate_limiter.py`:
 
 Copy `config_sample.env` → `config.env`. Required vars: `API_ID`, `API_HASH`, `BOT_TOKEN`, `BIN_CHANNEL`, `DATABASE_URL`.
 
+## Streaming health, links and jobs (added after the streaming fixes)
+
+Runtime counters + alerting (`Thunder/utils/metrics.py`, dependency-free so the
+routes, streamer and plugins can all import it):
+
+- `/status` (HTTP) returns a `metrics` block; the bot's `/status` prints a
+  "Streaming Metrics" report including per-client error attribution.
+- `FailureAlerter` DMs `OWNER_ID` when severe stream errors cross
+  `STREAM_FAILURE_ALERT_THRESHOLD` inside `STREAM_FAILURE_ALERT_WINDOW_MINUTES`
+  (cooldown 15 min). Disable with `ALERT_ON_STREAM_FAILURES="False"`.
+
+Per-uploader fairness: `MAX_CONCURRENT_PER_USER` (0 disables) caps simultaneous
+streams per uploader (or per caller IP on the legacy `/{id}?hash=` route) and
+answers `429` + `Retry-After`.
+
+Links: records carry `expires_at` (from `LINK_TTL_HOURS`, 0 = never) and
+`revoked`. Both `/f/<hash>/<name>` and `/watch/f/<hash>/<name>` answer
+`410 Gone` for revoked/expired links. Owner commands: `/revoke <hash|link>`,
+`/unrevoke <hash|link>`. `/thumb/<hash>` serves the stored thumbnail, and the
+watch/download pages emit OpenGraph tags so links unfurl with a preview.
+
+Uploads: a private message that is exactly one http(s) URL is fetched by
+Telegram (`send_document(url)`), stored in BIN_CHANNEL, registered canonically
+and returned as a normal link; toggle with `URL_UPLOAD_ENABLED`. `/mystats`
+reports links created, downloads served and bytes stored per uploader.
+
+Client selection prefers a pool client in the file's own data centre
+(`dc_from_file_id` + `select_optimal_client(preferred_dc=...)`) while still
+respecting the per-client capacity gate.
+
+CI: `.github/workflows/tests.yml` runs `python -m unittest discover -s tests -t .`
+on every push; `dockerize.yml` publishes to GHCR (`ghcr.io/<owner>/<repo>`), no
+Docker Hub secrets required.
+
 ## File references (streaming)
 
 Telegram file references are bound to the session that fetched the message, and
