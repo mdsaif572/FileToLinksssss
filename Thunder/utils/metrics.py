@@ -18,7 +18,7 @@ DEFAULT_ALERT_POLL_SECONDS = 30.0
 _MAX_FAILURE_SAMPLES = 1000
 
 # Error kinds worth waking the owner up for.
-_SEVERE_KINDS = frozenset({"stream", "reference", "internal"})
+_SEVERE_KINDS = frozenset({"stream", "reference", "internal", "no_capable_client"})
 
 
 def human_bytes(value: float) -> str:

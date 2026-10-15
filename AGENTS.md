@@ -136,8 +136,14 @@ storage channel:
 - Each pool client's readable channels are kept in `client_channels`;
   `select_optimal_client(required_channel=...)` only considers clients that
   administer the file's channel (DC preference and the capacity gate still
-  apply). When nobody is capable the file is still served by the least loaded
-  client and the event is counted as `no_capable_client` in the metrics.
+  apply). When nobody is capable the request fails fast with `503` and the event
+  is counted as `no_capable_client` (a severe kind, so it also feeds the owner
+  alert): spending the retry budget on a client that was never able to read the
+  channel only turns a configuration mistake into a slow timeout.
+- Per-file capacity is bounded by the bots of *its* channel (~50 admins per
+  channel), not by the size of the whole pool: 100 bots over two channels give
+  each file the ~50bots of one channel. More channels spread load, they do not
+  give one file a hundred clients.
 - Links that do not name a channel (`/{id}?hash=`, `/watch/<hash><id>`) resolve
   by trying every configured channel, primary first.
 - Operationally: first ~50 bots in `BIN_CHANNEL`, next ~50 in `BIN_CHANNEL_2`.

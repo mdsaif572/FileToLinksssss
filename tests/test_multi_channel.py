@@ -110,15 +110,19 @@ class ChannelAwareSelectionTest(unittest.TestCase):
         client_id, _ = sr.select_optimal_client(required_channel=SECOND)
         self.assertEqual(client_id, 1)
 
-    def test_falls_back_to_load_balancing_when_nobody_is_capable(self):
+    def test_a_channel_nobody_administers_fails_fast_and_loud(self):
+        from aiohttp import web
+
         sr.multi_clients[0] = object()
         work_loads[0] = 2
         client_channels[0] = frozenset({PRIMARY})
         before = metrics.snapshot()["errors"].get("no_capable_client", 0)
 
-        client_id, _ = sr.select_optimal_client(required_channel=SECOND)
+        with self.assertRaises(web.HTTPServiceUnavailable) as caught:
+            sr.select_optimal_client(required_channel=SECOND)
 
-        self.assertEqual(client_id, 0)
+        self.assertEqual(caught.exception.status, 503)
+        self.assertIn("Retry-After", caught.exception.headers)
         self.assertEqual(
             metrics.snapshot()["errors"].get("no_capable_client", 0), before + 1,
             "an incapable pool must be visible in the metrics, not silently served"

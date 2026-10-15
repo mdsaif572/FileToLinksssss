@@ -223,8 +223,13 @@ def select_optimal_client(
         else:
             metrics.record_error("no_capable_client", f"channel {required_channel}")
             logger.warning(
-                f"No pool client can read channel {required_channel}; "
-                "serving with the least loaded client instead"
+                f"No pool client administers channel {required_channel}; "
+                "file cannot be served until one is added"
+            )
+            raise web.HTTPServiceUnavailable(
+                text=("This file is stored in a channel no bot in the pool can "
+                      "read yet. Ask the operator to add a bot to it."),
+                headers={"Retry-After": str(OVERLOAD_RETRY_AFTER_SECONDS), **CORS_HEADERS},
             )
 
     candidates = available_clients
