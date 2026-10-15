@@ -77,4 +77,20 @@ Copy `config_sample.env` → `config.env`. Required vars: `API_ID`, `API_HASH`, 
 - Logs: `Thunder/logs/bot.txt`
 - Health check: admin `/status` command
 - No linting/formatting tools configured — follow conventions manually
-- No formal test suite — verify via bot interaction and link streaming
+- Tests: `python -m unittest discover -s tests -t .` (currently covers streaming
+  route byte-range serving and `work_loads` accounting — see `tests/`)
+
+## Upstream sync (update.py)
+
+`Procfile` runs `python update.py; python -m Thunder` (semicolon, deliberately:
+a failed sync must never stop the dyno from booting).
+
+- The sync must use `git checkout -f -B <branch> origin/<branch>`. Without `-f`
+  it aborts on a freshly deployed tree (Heroku slug / Docker image) with
+  "untracked working tree files would be overwritten by checkout", because the
+  app files exist on disk but have no git history yet. `-f` overwrites only files
+  present in the upstream commit, so untracked `config.env` survives.
+- `update.py` must exit 0 even when the sync fails, and must always write the
+  `.upstream_synced` marker. The marker suppresses the auto-update re-exec in
+  `Thunder/__main__.py`; without it on the failure path the boot loops.
+- A failed git sync falls back to the GitHub archive download (`update_via_archive`).

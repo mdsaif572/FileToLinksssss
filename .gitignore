@@ -27,4 +27,4 @@ var/
 wheels/
 *.egg-info/
 .installed.cfg
-*.egg
+*.egg.upstream_synced

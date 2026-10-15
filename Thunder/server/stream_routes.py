@@ -243,7 +243,11 @@ async def _serve_media_response(
     except StopAsyncIteration:
         pass
     except Exception as e:
-        work_loads[client_id] -= 1
+        # The route handler owns the single work_loads decrement for every error
+        # path (see media_delivery / canonical_media_delivery). Decrementing here
+        # as well double-counts the release and drives this client's load
+        # negative, which then defeats the capacity gate in
+        # select_optimal_client() and shows up as negative numbers in /status.
         logger.error(f"Failed to fetch initial chunk for {filename}: {e}", exc_info=True)
         raise web.HTTPServiceUnavailable(
             text="Media stream temporarily unavailable. Please retry shortly.",

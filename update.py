@@ -30,6 +30,21 @@ def run_cmd(cmd: str) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, shell=True, capture_output=True, text=True)
 
 
+def _write_sync_marker() -> None:
+    """Record that this boot already attempted an upstream sync.
+
+    The marker is what stops the auto-update hook in Thunder/__main__.py from
+    re-execing into another sync attempt during the same boot - so it must be
+    written on failure too, otherwise a failed sync turns into an endless
+    re-exec loop instead of a bot that simply boots the code already on disk.
+    """
+    try:
+        with open('.upstream_synced', 'w') as f:
+            f.write(str(time.time()))
+    except Exception:
+        pass
+
+
 def update_via_archive() -> int:
     import io
     import tarfile
@@ -87,11 +102,7 @@ def update_via_archive() -> int:
 
         log_info(f'Successfully updated and synchronized with upstream archive (branch: {UPSTREAM_BRANCH})')
         os.environ['UPSTREAM_SYNCED'] = '1'
-        try:
-            with open('.upstream_synced', 'w') as f:
-                f.write(str(time.time()))
-        except Exception:
-            pass
+        _write_sync_marker()
         return 0
     except Exception as e:
         log_error(f'Archive fallback update failed: {e}')
@@ -175,23 +186,26 @@ def update_codebase() -> int:
             )
             return 1
 
+        # `-f` (force) is required, not cosmetic: on a freshly deployed tree
+        # (Heroku slug, Docker image, plain tar extract) the application files
+        # exist on disk but are untracked, so a plain `git checkout -B` aborts
+        # with "untracked working tree files would be overwritten by checkout"
+        # and the bot then never boots. -f overwrites only files that the
+        # upstream commit also contains, so untracked config.env is preserved.
         reset_cmd = (
-            f'git checkout -B {UPSTREAM_BRANCH} origin/{UPSTREAM_BRANCH} -q && '
+            f'git checkout -f -B {UPSTREAM_BRANCH} origin/{UPSTREAM_BRANCH} -q && '
             f'git reset --hard origin/{UPSTREAM_BRANCH} -q'
         )
         reset_res = run_cmd(reset_cmd)
         if reset_res.returncode == 0:
             log_info(f'Successfully updated and synchronized with {UPSTREAM_REPO} (branch: {UPSTREAM_BRANCH})')
             os.environ['UPSTREAM_SYNCED'] = '1'
-            try:
-                with open('.upstream_synced', 'w') as f:
-                    f.write(str(time.time()))
-            except Exception:
-                pass
+            _write_sync_marker()
             return 0
         else:
             log_error(f'Failed to reset to upstream branch: {reset_res.stderr.strip()}')
-            return 1
+            log_info('Retrying upstream sync via direct GitHub archive fallback...')
+            return update_via_archive()
 
     except Exception as e:
         log_error(f'Unexpected exception during upstream update: {e}')
@@ -208,4 +222,13 @@ def update_codebase() -> int:
 
 if __name__ == '__main__':
     exit_code = update_codebase()
+    if exit_code != 0:
+        # A failed sync must never stop the bot from booting: the Procfile runs
+        # `python update.py && python -m Thunder`, so a non-zero exit here leaves
+        # the dyno with nothing running at all. Boot the code already on disk
+        # and mark this boot as handled so the auto-update hook in
+        # Thunder/__main__.py does not re-exec into another sync attempt.
+        log_error('Upstream sync failed - booting the code currently on disk instead.')
+        _write_sync_marker()
+        exit_code = 0
     sys.exit(exit_code)
