@@ -1,7 +1,9 @@
 # Thunder/utils/custom_dl.py
 
 import asyncio
-from typing import Any, AsyncGenerator, Awaitable, Callable, Dict, Optional
+import time
+from collections import OrderedDict
+from typing import Any, AsyncGenerator, Awaitable, Callable, Dict, Optional, Tuple
 
 from pyrogram import Client
 from pyrogram.errors import FloodWait
@@ -12,15 +14,27 @@ from Thunder.utils.file_properties import get_media
 from Thunder.utils.logger import logger
 from Thunder.vars import Var
 
+_MSG_CACHE_TTL = 300  # 5 minutes
+_MSG_CACHE_MAX_SIZE = 500
+
 
 class ByteStreamer:
-    __slots__ = ('client', 'chat_id')
+    __slots__ = ('client', 'chat_id', '_msg_cache')
 
     def __init__(self, client: Client) -> None:
         self.client = client
         self.chat_id = int(Var.BIN_CHANNEL)
+        self._msg_cache: OrderedDict[int, Tuple[float, Message]] = OrderedDict()
 
     async def get_message(self, message_id: int) -> Message:
+        now = time.time()
+        if message_id in self._msg_cache:
+            ts, message = self._msg_cache[message_id]
+            if now - ts < _MSG_CACHE_TTL:
+                self._msg_cache.move_to_end(message_id)
+                return message
+            self._msg_cache.pop(message_id, None)
+
         while True:
             try:
                 message = await self.client.get_messages(self.chat_id, message_id)
@@ -34,6 +48,12 @@ class ByteStreamer:
 
         if not message or not message.media:
             raise FileNotFound(f"Message {message_id} not found")
+
+        self._msg_cache[message_id] = (now, message)
+        self._msg_cache.move_to_end(message_id)
+        while len(self._msg_cache) > _MSG_CACHE_MAX_SIZE:
+            self._msg_cache.popitem(last=False)
+
         return message
 
     async def stream_file(

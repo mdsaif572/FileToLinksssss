@@ -5,6 +5,8 @@
 .Python
 config.env
 log.text
+Thunder/logs/
+*.log
 .vscode/
 **/__pycache__/
 *.session

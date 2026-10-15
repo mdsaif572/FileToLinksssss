@@ -576,14 +576,22 @@ async def process_batch(
         except Exception as e:
             logger.error(f"Error getting messages in batch: {e}", exc_info=True)
             messages = []
-        for m in messages:
-            if m and m.media:
+        batch_semaphore = asyncio.Semaphore(4)
+
+        async def _process_item(m):
+            if not m or not m.media:
+                return False, None
+            async with batch_semaphore:
                 links = await process_single(bot, msg, m, None, shortener_val, original_request_msg=msg)
                 if links:
-                    links_list.append(links['online_link'])
-                    processed += 1
-                else:
-                    failed += 1
+                    return True, links['online_link']
+                return False, None
+
+        chunk_results = await asyncio.gather(*[_process_item(m) for m in messages])
+        for success, link in chunk_results:
+            if success and link:
+                links_list.append(link)
+                processed += 1
             else:
                 failed += 1
         if (processed + failed) % BATCH_UPDATE_INTERVAL == 0 or (processed + failed) == count:

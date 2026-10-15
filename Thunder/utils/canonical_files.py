@@ -86,9 +86,12 @@ def build_file_record(
 
 def _prune_cache(cache: "OrderedDict[Any, Tuple[float, Dict[str, Any]]]") -> None:
     now = asyncio.get_running_loop().time()
-    expired_keys = [key for key, (ts, _) in cache.items() if now - ts > _CACHE_TTL_SECONDS]
-    for key in expired_keys:
-        cache.pop(key, None)
+    while cache:
+        key, (ts, _) = next(iter(cache.items()))
+        if now - ts > _CACHE_TTL_SECONDS:
+            cache.pop(key, None)
+        else:
+            break
     while len(cache) > _CACHE_MAX_ITEMS:
         cache.popitem(last=False)
 

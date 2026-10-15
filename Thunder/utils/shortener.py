@@ -100,7 +100,8 @@ class ShortenerSystem:
         self.session = None
         self.plugin = None
         self.ready = False
-        self._lock = asyncio.Lock()
+        self._init_lock = asyncio.Lock()
+        self._semaphore = asyncio.Semaphore(10)
 
     def _get_plugin_class(self, domain: str):
         for plugin_class in ShortenerPlugin.__subclasses__():
@@ -113,43 +114,47 @@ class ShortenerSystem:
         if self.ready:
             return True
 
-        if not (getattr(Var, "SHORTEN_ENABLED", False) or
-                getattr(Var, "SHORTEN_MEDIA_LINKS", False)):
-            return False
+        async with self._init_lock:
+            if self.ready:
+                return True
 
-        site = getattr(Var, "URL_SHORTENER_SITE", "")
-        api_key = getattr(Var, "URL_SHORTENER_API_KEY", "")
+            if not (getattr(Var, "SHORTEN_ENABLED", False) or
+                    getattr(Var, "SHORTEN_MEDIA_LINKS", False)):
+                return False
 
-        if not (site and api_key):
-            return False
+            site = getattr(Var, "URL_SHORTENER_SITE", "")
+            api_key = getattr(Var, "URL_SHORTENER_API_KEY", "")
 
-        try:
-            self.session = await asyncio.to_thread(
-                cloudscraper.create_scraper,
-                browser={
-                    'browser': 'chrome',
-                    'platform': 'windows',
-                    'desktop': True,
-                    'mobile': False
-                },
-                delay=1
-            )
+            if not (site and api_key):
+                return False
 
-            plugin_class = self._get_plugin_class(site)
-            self.plugin = plugin_class()
-            self.plugin.session = self.session
-            self.plugin.domain = site
-            self.ready = True
-            return True
-        except Exception as e:
-            logger.error(f"Failed to initialize ShortenerSystem: {e}", exc_info=True)
-            return False
+            try:
+                self.session = await asyncio.to_thread(
+                    cloudscraper.create_scraper,
+                    browser={
+                        'browser': 'chrome',
+                        'platform': 'windows',
+                        'desktop': True,
+                        'mobile': False
+                    },
+                    delay=1
+                )
+
+                plugin_class = self._get_plugin_class(site)
+                self.plugin = plugin_class()
+                self.plugin.session = self.session
+                self.plugin.domain = site
+                self.ready = True
+                return True
+            except Exception as e:
+                logger.error(f"Failed to initialize ShortenerSystem: {e}", exc_info=True)
+                return False
 
     async def short_url(self, url: str) -> str:
         if not self.ready:
             return url
 
-        async with self._lock:
+        async with self._semaphore:
             try:
                 return await self.plugin.shorten(url, Var.URL_SHORTENER_API_KEY)
             except Exception as e:

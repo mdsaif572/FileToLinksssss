@@ -27,7 +27,7 @@ routes = web.RouteTableDef()
 
 SECURE_HASH_LENGTH = 6
 CHUNK_SIZE = 1024 * 1024
-MAX_CONCURRENT_PER_CLIENT = 8
+MAX_CONCURRENT_PER_CLIENT = getattr(Var, "MAX_CONCURRENT_PER_CLIENT", 16)
 OVERLOAD_RETRY_AFTER_SECONDS = 2
 RANGE_REGEX = re.compile(r"^bytes=(?P<start>\d*)-(?P<end>\d*)$")
 PATTERN_HASH_FIRST = re.compile(
@@ -224,43 +224,46 @@ async def _serve_media_response(
             headers=headers
         )
 
-    async def stream_generator():
-        try:
-            bytes_sent = 0
-            bytes_to_skip = start % CHUNK_SIZE
-
-            async for chunk in streamer.stream_file(
-                media_ref,
-                offset=start,
-                limit=content_length,
-                fallback_message_id=fallback_message_id,
-                on_fallback_message=on_fallback_message
-            ):
-                if bytes_to_skip > 0:
-                    if len(chunk) <= bytes_to_skip:
-                        bytes_to_skip -= len(chunk)
-                        continue
-                    chunk = chunk[bytes_to_skip:]
-                    bytes_to_skip = 0
-
-                remaining = content_length - bytes_sent
-                if len(chunk) > remaining:
-                    chunk = chunk[:remaining]
-
-                if chunk:
-                    yield chunk
-                    bytes_sent += len(chunk)
-
-                if bytes_sent >= content_length:
-                    break
-        finally:
-            work_loads[client_id] -= 1
-
-    return web.Response(
+    response = web.StreamResponse(
         status=206 if range_header else 200,
-        body=stream_generator(),
         headers=headers
     )
+    await response.prepare(request)
+
+    try:
+        bytes_sent = 0
+        bytes_to_skip = start % CHUNK_SIZE
+
+        async for chunk in streamer.stream_file(
+            media_ref,
+            offset=start,
+            limit=content_length,
+            fallback_message_id=fallback_message_id,
+            on_fallback_message=on_fallback_message
+        ):
+            if bytes_to_skip > 0:
+                if len(chunk) <= bytes_to_skip:
+                    bytes_to_skip -= len(chunk)
+                    continue
+                chunk = chunk[bytes_to_skip:]
+                bytes_to_skip = 0
+
+            remaining = content_length - bytes_sent
+            if len(chunk) > remaining:
+                chunk = chunk[:remaining]
+
+            if chunk:
+                await response.write(chunk)
+                bytes_sent += len(chunk)
+
+            if bytes_sent >= content_length:
+                break
+    except (ConnectionResetError, asyncio.CancelledError):
+        logger.debug(f"Client disconnected early while streaming {filename}")
+    finally:
+        work_loads[client_id] -= 1
+
+    return response
 
 
 @routes.get("/", allow_head=True)

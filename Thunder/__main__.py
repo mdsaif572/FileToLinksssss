@@ -303,8 +303,7 @@ async def start_services():
 
 if __name__ == '__main__':
     try:
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(start_services())
+        asyncio.run(start_services())
     except KeyboardInterrupt:
         print("╔═══════════════════════════════════════════════════════════╗")
         print("║                   Bot stopped by user (CTRL+C)            ║")
