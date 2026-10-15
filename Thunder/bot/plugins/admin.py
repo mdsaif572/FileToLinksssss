@@ -26,7 +26,7 @@ from Thunder.utils.messages import (MSG_REVOKE_INVALID, MSG_REVOKE_NOT_FOUND,
 from Thunder.utils.broadcast import broadcast_message
 from Thunder.utils.database import db
 from Thunder.utils.human_readable import humanbytes
-from Thunder.utils.logger import LOG_FILE, logger
+from Thunder.utils.logger import LOG_FILE, logger, read_log_tail
 from Thunder.utils.metrics import metrics
 from Thunder.utils.messages import (
     MSG_ADMIN_AUTH_LIST_HEADER, MSG_ADMIN_NO_BAN_REASON,
@@ -39,7 +39,8 @@ from Thunder.utils.messages import (
     MSG_DEAUTHORIZE_FAILED, MSG_DEAUTHORIZE_SUCCESS,
     MSG_DEAUTHORIZE_USAGE, MSG_ERROR_GENERIC, MSG_INVALID_BROADCAST_CMD,
     MSG_INVALID_USER_ID, MSG_LOG_FILE_CAPTION, MSG_LOG_FILE_EMPTY,
-    MSG_LOG_FILE_MISSING, MSG_NO_AUTH_USERS, MSG_RESTARTING, MSG_SHELL_ERROR,
+    MSG_LOG_FILE_MISSING, MSG_LOG_FILE_TAIL_CAPTION, MSG_NO_AUTH_USERS,
+    MSG_RESTARTING, MSG_SHELL_ERROR,
     MSG_SHELL_EXECUTING, MSG_SHELL_NO_OUTPUT, MSG_SHELL_OUTPUT,
     MSG_SHELL_OUTPUT_STDERR, MSG_SHELL_OUTPUT_STDOUT, MSG_SHELL_USAGE,
     MSG_SPEEDTEST_ERROR, MSG_SPEEDTEST_INIT, MSG_SPEEDTEST_RESULT,
@@ -201,13 +202,34 @@ async def send_logs(client: Client, message: Message):
         )
         return
     
+    # /log sends the tail (fast); /log full sends the whole rotated file.
+    wants_full = len(message.command) > 1 and message.command[1].strip().lower() in ("full", "all")
+    payload = LOG_FILE
+    caption = MSG_LOG_FILE_CAPTION
+
+    if not wants_full:
+        try:
+            tail = read_log_tail()
+        except Exception as e:
+            logger.error(f"Error reading log tail: {e}", exc_info=True)
+            tail = b""
+
+        if not tail:
+            await reply(message, text=MSG_LOG_FILE_EMPTY)
+            return
+
+        stream = BytesIO(tail)
+        stream.name = "bot_tail.txt"
+        payload = stream
+        caption = MSG_LOG_FILE_TAIL_CAPTION.format(size=humanbytes(len(tail)))
+
     try:
         try:
-            await message.reply_document(LOG_FILE, caption=MSG_LOG_FILE_CAPTION)
+            await message.reply_document(payload, caption=caption)
         except FloodWait as e:
             logger.debug(f"FloodWait in log file sending, sleeping for {e.value}s")
             await asyncio.sleep(e.value)
-            await message.reply_document(LOG_FILE, caption=MSG_LOG_FILE_CAPTION)
+            await message.reply_document(payload, caption=caption)
     except Exception as e:
         logger.error(f"Error sending log file: {e}", exc_info=True)
         await reply(message, text=MSG_ERROR_GENERIC)

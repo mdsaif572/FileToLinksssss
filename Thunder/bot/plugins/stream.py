@@ -72,6 +72,20 @@ async def fwd_media(m_msg: Message, chat_id: Optional[int] = None) -> Optional[M
         return None
 
 
+def build_storage_chat_filter(channels=None):
+    """Filter matching every channel the bot stores files in.
+
+    Copies made into a storage channel raise a channel update. Those must never
+    be treated as user submissions: with more than one storage channel, excluding
+    only the primary let the extra channels' copies reach the media handler.
+    """
+    configured = channels or getattr(Var, "BIN_CHANNELS", None) or [Var.BIN_CHANNEL]
+    return filters.chat(list(configured))
+
+
+STORAGE_CHAT_FILTER = build_storage_chat_filter()
+
+
 def get_link_buttons(links):
     return InlineKeyboardMarkup([[
         InlineKeyboardButton(MSG_BUTTON_STREAM_NOW, url=links['stream_link'], style=enums.ButtonStyle.PRIMARY),
@@ -321,7 +335,7 @@ async def private_receive_handler(bot: Client, msg: Message, **kwargs):
     filters.channel &
     filters.incoming &
     (filters.document | filters.video | filters.audio) &
-    ~filters.chat(Var.BIN_CHANNEL),
+    ~STORAGE_CHAT_FILTER,
     group=-1
 )
 async def channel_receive_handler(bot: Client, msg: Message):

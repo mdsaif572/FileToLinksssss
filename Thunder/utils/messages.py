@@ -114,6 +114,10 @@ MSG_WORKLOAD_ITEM = "   {bot_name}: {load}\n"
 MSG_ADMIN_RESTART_DONE = "✅ **Restart Successful!**"
 MSG_RESTARTING = "♻️ **Updating and Restarting Bot...**\n\n> ⏳ Please wait a moment."
 MSG_LOG_FILE_CAPTION = "📄 **System Logs**"
+MSG_LOG_FILE_TAIL_CAPTION = (
+    "📄 **System Logs** (last {size})\n"
+    "Send `/log full` if you need the entire file."
+)
 
 MSG_LOG_FILE_EMPTY = "ℹ️ **Log File Empty:** No data found in the log file."
 MSG_LOG_FILE_MISSING = "⚠️ **Log File Missing:** Could not find the log file."

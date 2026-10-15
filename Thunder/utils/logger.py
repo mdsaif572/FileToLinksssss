@@ -36,4 +36,23 @@ logger.addHandler(QueueHandler(log_queue))
 
 atexit.register(listener.stop)
 
-__all__ = ['logger', 'LOG_FILE']
+def read_log_tail(path: str = LOG_FILE, max_bytes: int = 200 * 1024) -> bytes:
+    """Read the last ``max_bytes`` of a log file, starting at a line boundary.
+
+    The log rotates at 10 MB, so sending the whole file made /log slow (and the
+    command's update could even be dropped while the dispatcher was busy).
+    """
+    with open(path, "rb") as handle:
+        handle.seek(0, os.SEEK_END)
+        size = handle.tell()
+        start = max(size - max_bytes, 0)
+        handle.seek(start)
+        data = handle.read()
+
+    if start > 0:
+        newline = data.find(b"\n")
+        data = data[newline + 1:] if newline != -1 else data
+    return data
+
+
+__all__ = ['logger', 'LOG_FILE', 'read_log_tail']
