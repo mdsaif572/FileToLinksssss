@@ -1,19 +1,17 @@
 <p align="center">
-
-[![Deploy to Railyard](https://app.railyard.run/deploy/badge)](https://app.railyard.run/deploy?repo=https://github.com/fyaz05/FileToLink)
-  <img src="https://cdn.jsdelivr.net/gh/fyaz05/Resources@main/FileToLink/Thunder.jpg" alt="Cloud Station Logo" width="120">
-  <h1 align="center">☁️ Cloud Station</h1>
+  <img src="https://raw.githubusercontent.com/mdsaif572/FileToLinksssss/main/Thunder/template/logo.png" alt="Cloud Station Logo" width="120" onerror="this.src='https://cdn.jsdelivr.net/gh/fyaz05/Resources@main/FileToLink/Thunder.jpg'">
+  <h1 align="center">☁️ Cloud Station File-to-Link</h1>
 </p>
 
 <p align="center">
-  <b>High-Performance Telegram File-to-Link Bot for Direct Links & Streaming</b>
+  <b>High-Performance Telegram File-to-Link Bot for High-Speed Direct Downloads & Media Streaming</b>
 </p>
 
 <p align="center">
-  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.13%2B-blue?style=for-the-badge&logo=python" alt="Python Version"></a>
-  <a href="https://github.com/rjriajul/wzgram"><img src="https://img.shields.io/badge/WZGram-blue?style=for-the-badge" alt="WZGram"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/fyaz05/FileToLink?style=for-the-badge&color=green" alt="License"></a>
-  <a href="https://t.me/Thunder_Updates"><img src="https://img.shields.io/badge/Telegram-Channel-blue?style=for-the-badge&logo=telegram" alt="Telegram Channel"></a>
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.13%2B-blue?style=for-the-badge&logo=python" alt="Python Version"></a>
+  <a href="https://github.com/rjriajul/wzgram"><img src="https://img.shields.io/badge/WZGram-3.1.5-blue?style=for-the-badge" alt="WZGram"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-green?style=for-the-badge" alt="License"></a>
+  <a href="https://github.com/mdsaif572/FileToLinksssss"><img src="https://img.shields.io/badge/Maintained-Yes-success?style=for-the-badge" alt="Maintenance"></a>
 </p>
 
 <hr>
@@ -21,564 +19,290 @@
 ## 📑 Table of Contents
 
 - [About The Project](#about-the-project)
+- [Key Features](#key-features)
 - [How It Works](#how-it-works)
-- [Features](#features)
-- [Configuration](#configuration)
+- [Configuration Guide](#configuration-guide)
   - [Essential Configuration](#essential-configuration)
-  - [Optional Configuration](#optional-configuration)
-- [Usage and Commands](#usage-and-commands)
-  - [Basic Usage](#basic-usage)
-  - [Commands Reference](#commands-reference)
-- [Advanced Feature Setup](#advanced-feature-setup)
-  - [Token System](#token-system)
-  - [URL Shortening](#url-shortening)
-  - [Rate Limiting System](#rate-limiting-system)
-  - [Network Speed Testing](#network-speed-testing)
+  - [Multiple Storage Channels](#multiple-storage-channels)
+  - [Multi-Client Pool Configuration](#multi-client-pool-configuration)
+  - [Optional Configuration Variables](#optional-configuration-variables)
+- [Usage & Commands Reference](#usage--commands-reference)
+  - [User Commands](#user-commands)
+  - [Admin / Owner Commands](#admin--owner-commands)
+  - [BotFather Menu Setup](#botfather-menu-setup)
+- [Streaming Architecture & Optimization](#streaming-architecture--optimization)
+  - [Zero H15 Idle Timeouts & Chunk Pre-fetching](#zero-h15-idle-timeouts--chunk-pre-fetching)
+  - [Auto-Sync on Dyno Restart](#auto-sync-on-dyno-restart)
+  - [Fair Per-Caller Rate Limiting](#fair-per-caller-rate-limiting)
 - [Deployment Guide](#deployment-guide)
-  - [Prerequisites](#prerequisites)
-  - [Installation](#installation)
-  - [Quick Deploy](#quick-deploy)
-    - [Deploy to Koyeb](#deploy-to-koyeb)
-    - [Deploy to Render](#deploy-to-render)
-    - [Deploy to Railway](#deploy-to-railway)
-    - [Deploy to Heroku](#deploy-to-heroku)
-  - [Reverse Proxy Setup](#reverse-proxy-setup)
-- [Support & Community](#support--community)
-  - [Troubleshooting & FAQ](#troubleshooting--faq)
-  - [Contributing](#contributing)
+  - [Heroku Quick Deploy](#heroku-quick-deploy)
+  - [Docker / VPS Deployment](#docker--vps-deployment)
+- [Troubleshooting & FAQ](#troubleshooting--faq)
 - [License](#license)
-- [Acknowledgments](#acknowledgments)
 
 <hr>
 
 ## About The Project
 
-**Cloud Station** is a powerful Telegram bot that transforms Telegram files into high-speed direct links, perfect for both streaming and rapid downloading. Share files via HTTP(S) links without needing to download them from the Telegram client first.
+**Cloud Station** is an enterprise-grade Telegram bot designed to convert files, documents, and media of any size into fast, direct HTTP(S) links. It allows users to stream videos directly in any browser or media player and download files at maximum line speed without opening Telegram.
 
-### 💡 Perfect For
+Built with Python 3.13, **WZGram 3.1.5**, `aiohttp`, and MongoDB, Cloud Station includes multi-client load balancing, multiple storage channels, failure alerting, fair rate limiting, and an auto-healing upstream sync engine.
 
-- 🚀 Bypassing Telegram's built-in download speed limits
-- ☁️ Unlimited cloud storage with fast streaming and download links
-- 🎬 Content creators sharing media files
-- 👥 Communities distributing resources
-- 🎓 Educational platforms sharing materials
+---
+
+## Key Features
+
+- ⚡ **Direct Link Streaming & Downloading**: Stream videos in-browser or download with IDM/Aria2/Wget at full connection speed.
+- 🎨 **Vibrant Button Styles**: Interactive Telegram menus styled with native colors (Blue Primary, Green Success, Red Danger).
+- 📦 **Multiple Storage Channels (`BIN_CHANNEL_2`, `BIN_CHANNEL_3`, ...)**:
+  - Bypasses Telegram's 50-administrator limit per channel.
+  - Automatically load-balances files across channels using deterministic content hashes.
+- 🤖 **Multi-Client Pool (`MULTI_TOKEN1`, `MULTI_TOKEN2`, ...)**:
+  - Distributes streaming loads across dozens of bot accounts.
+  - Automatic DC-matching (prefers a client in the file's Telegram Data Center to minimize TTFB).
+- 🔗 **Direct URL Uploads (`URL_UPLOAD_ENABLED`)**: Send any direct HTTP(S) URL in private chat; Telegram downloads it directly into your storage channel and returns a link.
+- 🔒 **Link Revocation & Expiration (`LINK_TTL_HOURS`)**:
+  - Set links to auto-expire after $N$ hours.
+  - Instantly revoke or restore access with `/revoke <hash>` and `/unrevoke <hash>`.
+- 📊 **Streaming Metrics & Owner Failure Alerts**:
+  - `/status` HTTP endpoint with live Prometheus-compatible runtime metrics.
+  - Automatic Telegram DM notifications to `OWNER_ID` when errors exceed thresholds.
+- 🔄 **Zero-Downtime Dyno Auto-Sync**: Automatically syncs code on dyno boot via GitHub Archive (`.tar.gz`) even when `git` binary is unavailable on container/PaaS environments.
+- 🛡️ **Per-Caller Rate Limiting (`MAX_CONCURRENT_PER_USER`)**: Caps simultaneous streams per client IP using reverse-proxy forwarded IP headers, ensuring single users cannot monopolize pool capacity.
+- 📱 **Maximalist Responsive Watch & Download Page**: Modern glassmorphic web player supporting range requests, scrubbing, and picture-in-picture.
+
+---
 
 ## How It Works
 
 ```
-User Uploads File → Telegram Bot → Forwards to Channel → Generates Direct Link → Direct Download / Streaming
+User sends media / URL
+          │
+          ▼
+   Primary Bot / Pool
+          │
+          ▼
+   Stable Hash Channel Router
+  ┌───────┴───────┐
+  ▼               ▼
+BIN_CHANNEL   BIN_CHANNEL_2 ...
+  └───────┬───────┘
+          ▼
+   Direct Link Generated
+   (/f/<hash>/<name> & /watch/f/<hash>/<name>)
+          │
+          ▼
+   Streaming Server (aiohttp)
+   [DC Client Router + Pre-fetch Engine]
+          │
+          ▼
+   Fast Browser Playback / Multi-threaded Download
 ```
 
-1. **Upload** → User sends any file to the bot.
-2. **Store** → The bot forwards the file to your private storage channel (`BIN_CHANNEL`), where it is permanently saved to generate the link.
-3. **Generate** → A unique, permanent link is created.
-4. **Stream/Download** → Anyone with the link can stream or download the file directly in their browser.
-5. **Balance** → Multi-client support distributes the load for high availability.
+---
 
-## Features
+## Configuration Guide
 
-#### Core Functionality
-
-- ✅ **Direct Link Generation** - Convert any Telegram file into a direct HTTP(S) link.
-- ✅ **Permanent Links** - Links remain active as long as the file exists in the storage channel.
-- ✅ **Browser Streaming & Downloading** - Stream media directly or download files at high speed without a Telegram client.
-- ✅ **All File Types** - Supports video, audio, documents, images, and any other file format.
-- ✅ **Batch Processing** - Generate links for multiple files at once with a single command.
-
-#### Performance & Scalability
-
-- ✅ **Multi-Client Support** - Distributes traffic across multiple Telegram bots to avoid limits and increase throughput.
-- ✅ **Async Architecture** - Built with `aiohttp` and `asyncio` for non-blocking, high-performance operations.
-- ✅ **MongoDB Integration** - Ensures persistent and reliable data storage.
-
-#### Security & Control
-
-- 🔐 **Token Authentication** - Secure user access with a time-limited token system.
-- 🛡️ **Admin Controls** - Full suite of commands for user and bot management.
-- 👤 **User Authentication** - Require users to join a specific channel before they can use the bot.
-- ✅ **Channel/Group Support** - Fully functional in private chats, groups, and channels.
-
-#### Customization
-
-- 🌍 **Custom Domain** - Serve files from your own domain for a professional look.
-- 🔗 **URL Shortening** - Integrate with URL shortener services for clean, shareable links.
-- 🎨 **Custom Templates** - Personalize messages sent by the bot to match your brand.
-- 📈 **Media Info Display** - Shows file size, duration, and format details in the response message.
-
-## Configuration
-
-Copy `config_sample.env` to `config.env` and fill in your values.
+Create `config.env` in the root directory (or configure Environment Variables in your hosting dashboard):
 
 ### Essential Configuration
 
-| Variable | Description | Example |
-| :--- | :--- | :--- |
-| `API_ID` | Telegram API ID | `12345678` |
-| `API_HASH` | Telegram API Hash | `abc123def456` |
-| `BOT_TOKEN` | Bot token from @BotFather | `123456:ABCdefGHI` |
-| `BIN_CHANNEL` | Storage channel ID | `-1001234567890` |
-| `OWNER_ID` | Owner user ID | `12345678` |
-| `DATABASE_URL` | MongoDB connection | `mongodb+srv://...` |
-| `FQDN` | Domain/IP address | `f2l.thunder.com` |
-| `HAS_SSL` | HTTPS enabled | `True` or `False` |
-| `PORT` | Server port | `8080` |
-| `NO_PORT` | Hide port in URLs | `True` or `False` |
+| Variable | Required | Description | Example |
+| :--- | :---: | :--- | :--- |
+| `API_ID` | **Yes** | Telegram API ID from [my.telegram.org](https://my.telegram.org) | `1234567` |
+| `API_HASH` | **Yes** | Telegram API Hash from [my.telegram.org](https://my.telegram.org) | `abc123def456...` |
+| `BOT_TOKEN` | **Yes** | Primary bot token from [@BotFather](https://t.me/BotFather) | `123456:ABC-DEF...` |
+| `BIN_CHANNEL` | **Yes** | Primary storage channel ID (bot must be admin) | `-1001234567890` |
+| `OWNER_ID` | **Yes** | Telegram User ID of the bot owner | `123456789` |
+| `DATABASE_URL` | **Yes** | MongoDB connection string (Atlas or self-hosted) | `mongodb+srv://...` |
+| `FQDN` | **Yes** | Fully Qualified Domain Name (or platform app domain) | `mybot.herokuapp.com` |
+| `HAS_SSL` | No | Set `True` if your domain uses HTTPS (default `True`) | `True` |
+| `PORT` | No | Web server port (Heroku sets this automatically) | `8080` |
+| `NO_PORT` | No | Hide port in generated URLs (`True` for 80/443) | `True` |
 
-### Optional Configuration
+---
 
-<details>
-<summary>Optional Configuration Details</summary>
+### Multiple Storage Channels
 
-| Variable | Description | Default |
-| :--- | :--- | :--- |
-| `MULTI_TOKEN1` | Additional bot token 1 (use MULTI_TOKEN1, MULTI_TOKEN2, etc.) | *(empty)* |
-| `FORCE_CHANNEL_ID` | Required channel join | *(empty)* |
-| `MAX_BATCH_FILES` | Maximum files in batch processing | `50` |
-| `CHANNEL` | Allow processing messages from channels | `False` |
-| `BANNED_CHANNELS` | Blocked channel IDs | *(empty)* |
-| `SLEEP_THRESHOLD` | Client switch threshold | `300` |
-| `WORKERS` | Async workers | `8` |
-| `NAME` | Bot name | `CloudStationF2L` |
-| `BIND_ADDRESS` | Bind address | `0.0.0.0` |
-| `PING_INTERVAL` | Ping interval (seconds) | `840` |
-| `TOKEN_ENABLED` | Enable tokens | `False` |
-| `SHORTEN_ENABLED` | URL shortening for tokens | `False` |
-| `SHORTEN_MEDIA_LINKS` | URL shortening for media | `False` |
-| `TOKEN_TTL_HOURS` | Token validity duration in hours | `24` |
-| `URL_SHORTENER_API_KEY` | Shortener API key | *(empty)* |
-| `URL_SHORTENER_SITE` | Shortener service | *(empty)* |
-| `SET_COMMANDS` | Auto-set bot commands | `True` |
-| `RATE_LIMIT_ENABLED` | Enable rate limiting | `False` |
-| `MAX_FILES_PER_PERIOD` | Files per window | `2` |
-| `RATE_LIMIT_PERIOD_MINUTES` | Time window | `1` |
-| `MAX_QUEUE_SIZE` | Queue size | `100` |
-| `GLOBAL_RATE_LIMIT` | Global limiting | `True` |
-| `MAX_GLOBAL_REQUESTS_PER_MINUTE` | Global limit | `4` |
-
-</details>
-
-## Usage and Commands
-
-### Basic Usage
-
-1. **Start** → Send `/start` to the bot.
-2. **Authenticate** → Join required channels (if configured).
-3. **Upload** → Send any media file.
-4. **Receive** → Get a direct streaming and download link.
-5. **Share** → Anyone can access the file via the link.
-
-### Commands Reference
-
-#### User Commands
-
-| Command | Description |
-| :--- | :--- |
-| `/start` | Start the bot and get a welcome message. Also used for token activation. |
-| `/link` | Generates a link. For batches, **reply to the first file** of a group and specify the count. **Example:** `/link 5` will process that file and the next four. |
-| `/dc` | Get the data center (DC) of a user or file. Use `/dc id`, or reply to a file or user. |
-| `/ping` | Check if the bot is online and measure response time. |
-| `/about` | Get information about the bot. |
-| `/help` | Show help and usage instructions. |
-
-#### Admin Commands
-
-| Command | Description |
-| :--- | :--- |
-| `/status` | Check bot status, uptime, and resource usage. |
-| `/broadcast` | Send a message to all users (supports text, media, buttons). |
-| `/stats` | View usage statistics and analytics. |
-| `/ban` | Ban a user or channel (reply to message or use user/channel ID). |
-| `/unban` | Unban a user or channel. |
-| `/log` | Send bot logs. |
-| `/restart` | Restart the bot. |
-| `/shell` | Execute a shell command. |
-| `/speedtest` | Run network speed test and display comprehensive results. |
-| `/users` | Show total number of users. |
-| `/authorize` | Permanently authorize a user to use the bot (bypasses token system). |
-| `/deauthorize` | Remove permanent authorization from a user. |
-| `/listauth` | List all permanently authorized users. |
-
-<details>
-<summary><h4>BotFather Commands Setup</h4></summary>
-
-```text
-start - Initialize bot
-link - Generate direct link
-dc - Get data center info
-ping - Check bot status
-about - Bot information
-help - Show help guide
-status - [Admin] System status
-stats - [Admin] Usage statistics
-broadcast - [Admin] Message all users
-ban - [Admin] Ban user
-unban - [Admin] Unban user
-users - [Admin] User count
-authorize - [Admin] Grant access
-deauthorize - [Admin] Revoke access
-listauth - [Admin] List authorized
-log - [Admin] Send bot logs
-restart - [Admin] Restart the bot
-shell - [Admin] Execute shell command
-speedtest - [Admin] Run network speed test
-```
-
-</details>
-
-## Advanced Feature Setup
-
-### Token System
-
-Enable controlled access with tokens:
-
-1. Set `TOKEN_ENABLED=True` in your `config.env`.
-2. Users receive automatic tokens on first use.
-3. Admins can grant permanent authorization with `/authorize` to bypass tokens.
-4. Tokens include activation links for secure access.
-
-### URL Shortening
-
-Configure URL shortening for cleaner links:
+Telegram caps channel administrators at 50. If your bot pool has more than ~45 bots, add additional channels:
 
 ```env
-SHORTEN_ENABLED=True
-SHORTEN_MEDIA_LINKS=True
-URL_SHORTENER_API_KEY=your_api_key
-URL_SHORTENER_SITE=shortener.example.com
+# Primary Channel (Default)
+BIN_CHANNEL=-1001234567890
+
+# Secondary Channels (Add as many as needed)
+BIN_CHANNEL_2=-1009876543210
+BIN_CHANNEL_3=-1005555555555
 ```
 
-### Rate Limiting System
+> **Rules for Multiple Channels:**
+> 1. The primary bot (`BOT_TOKEN`) must be an admin in **all** storage channels.
+> 2. The first ~45 pool bots should be admins in `BIN_CHANNEL`.
+> 3. Additional pool bots (`MULTI_TOKEN*`) should be admins in `BIN_CHANNEL_2`, `BIN_CHANNEL_3`, etc.
+> 4. Files are automatically hashed and routed to the proper channel on upload.
 
-Cloud Station implements a sophisticated multi-tier rate limiting system designed for high-performance file sharing:
+---
 
-#### **Priority Queue Architecture**
+### Multi-Client Pool Configuration
 
-- **Owner Priority**: Complete bypass of all rate limits.
-- **Authorized Users**: Dedicated priority queue with faster processing.
-- **Regular Users**: Standard queue with fair scheduling.
+Add additional bots to multiply download speed and handle concurrent streaming:
 
-#### **Multi-Level Rate Limiting**
-
-- **Per-User Limits**: Configurable files per time window.
-- **Global Limits**: System-wide request throttling.
-- **Sliding Window**: Time-based rate limiting with automatic cleanup.
-
-#### **Smart Queue Management**
-
-- **Automatic Re-queuing**: Failed requests due to rate limits are intelligently re-queued.
-- **Queue Size Limits**: Configurable maximum queue size.
-- **Flood Protection**: Built-in protection against Telegram flood waits.
-
-### Network Speed Testing
-
-Monitor server performance with built-in speed testing:
-
-```bash
-/speedtest
+```env
+MULTI_TOKEN1="bot_token_here"
+MULTI_TOKEN2="bot_token_here"
+MULTI_TOKEN3="bot_token_here"
+# Add as many as needed: MULTI_TOKEN4, MULTI_TOKEN5, ...
 ```
 
-Features include download/upload speeds, latency measurements, and shareable result images for performance monitoring.
+---
+
+### Optional Configuration Variables
+
+| Variable | Default | Description |
+| :--- | :---: | :--- |
+| `UPSTREAM_REPO` | `""` | GitHub repository URL for auto-updating on restart. |
+| `UPSTREAM_BRANCH` | `"main"` | Branch to pull updates from (`main`). |
+| `MAX_CONCURRENT_PER_USER` | `8` | Maximum simultaneous streams per viewer IP address. |
+| `LINK_TTL_HOURS` | `0` | Hours before links expire (`0` = never expires). |
+| `URL_UPLOAD_ENABLED` | `"True"` | Enable users to upload files by sending direct URLs. |
+| `ALERT_ON_STREAM_FAILURES` | `"True"` | Send Telegram DM to owner when stream errors spike. |
+| `STREAM_FAILURE_ALERT_THRESHOLD`| `5` | Error count required to trigger an alert. |
+| `STREAM_FAILURE_ALERT_WINDOW_MINUTES`| `5` | Time window (minutes) for error threshold count. |
+| `FORCE_CHANNEL_ID` | `""` | Require users to join this channel before using the bot. |
+| `TOKEN_ENABLED` | `"False"` | Require access token verification. |
+| `SHORTEN_MEDIA_LINKS` | `"False"` | Shorten generated media links using URL shortener. |
+| `MAX_BATCH_FILES` | `50` | Maximum files allowed per batch forward. |
+
+---
+
+## Usage & Commands Reference
+
+### User Commands
+
+| Command | Description |
+| :--- | :--- |
+| `/start` | Start the bot, check welcome message and token activation. |
+| `/help` | Show user manual, supported features, and link guides. |
+| `/about` | Bot version, engine information, and developer credits. |
+| `/ping` | Test bot response time and API latency. |
+| `/dc` | Check Telegram Data Center for yourself or reply to a media file. |
+| `/mystats` | View your personal uploaded files count, storage used, and downloads served. |
+| `/link [count]` | Generate direct links for media (reply to a file or forward multiple files). |
+
+### Admin / Owner Commands
+
+| Command | Description |
+| :--- | :--- |
+| `/status` | View live multi-client pool health, stream workloads, and memory usage. |
+| `/stats` | View global database statistics (total users, links, storage). |
+| `/revoke <hash>` | Instantly revoke access to a file link (answers `410 Gone`). |
+| `/unrevoke <hash>` | Restore a previously revoked file link. |
+| `/broadcast` | Broadcast text, media, or button messages to all bot users. |
+| `/ban <user_id>` | Ban a user from using the bot. |
+| `/unban <user_id>` | Unban a user. |
+| `/users` | Get total registered bot users count. |
+| `/speedtest` | Run network speed test on the hosting server. |
+| `/log` | Download latest bot execution log file. |
+| `/restart` | Restart bot services. |
+| `/shell <cmd>` | Execute a terminal command directly from Telegram. |
+
+### BotFather Menu Setup
+
+Copy and paste this list to [@BotFather](https://t.me/BotFather) ➔ `/setcommands`:
+
+```text
+start - Start the bot & get help
+link - Generate direct link for media
+dc - Check file or user data center
+ping - Check bot response speed
+about - Bot specifications & info
+help - How to use the bot
+mystats - View your personal usage stats
+status - [Admin] View streaming & pool status
+stats - [Admin] Global database analytics
+revoke - [Admin] Revoke a public link
+unrevoke - [Admin] Unrevoke a public link
+broadcast - [Admin] Send announcement to all users
+ban - [Admin] Ban a user
+unban - [Admin] Unban a user
+users - [Admin] Total user count
+log - [Admin] Get bot runtime logs
+restart - [Admin] Restart bot
+```
+
+---
+
+## Streaming Architecture & Optimization
+
+### Zero H15 Idle Timeouts & Chunk Pre-fetching
+Standard Telegram stream bridges suffer from Heroku `H15 Idle connection` errors when Telegram takes longer than 55 seconds to dispatch the first chunk after HTTP headers are committed. Cloud Station eliminates this:
+- The streaming router pre-fetches the initial byte chunk **before** sending `206 Partial Content` headers.
+- If upstream experiences transient MTProto packet stalls, `custom_dl.py` automatically retries without dropping the client connection.
+
+### Auto-Sync on Dyno Restart
+The `Procfile` is configured to launch via:
+```text
+web: python update.py && python -m Thunder
+```
+On boot or restart (`heroku restart`):
+1. `update.py` connects to `UPSTREAM_REPO` on branch `UPSTREAM_BRANCH`.
+2. Even in containerized environments where `git` is not installed, it fetches the latest commit via the GitHub Archive `.tar.gz` stream.
+3. It updates all repository files while strictly preserving your local `config.env`.
+4. It boots the latest codebase immediately.
+
+### Fair Per-Caller Rate Limiting
+Instead of throttling by user account (which would unfairly penalize viral files viewed by hundreds of separate people), `MAX_CONCURRENT_PER_USER` tracks concurrent connections per **caller IP address** using trusted proxy headers (`X-Forwarded-For`). Single callers cannot consume all pool threads.
+
+---
 
 ## Deployment Guide
 
-This section covers the complete setup process for deploying Cloud Station, from prerequisites to production deployment.
+### Heroku Quick Deploy
 
-### Prerequisites
+1. Fork this repository to your GitHub account.
+2. In Heroku Dashboard, create a new App.
+3. Under **Settings ➔ Config Vars**, add all required keys (`API_ID`, `API_HASH`, `BOT_TOKEN`, `BIN_CHANNEL`, `DATABASE_URL`, `OWNER_ID`, `FQDN`).
+4. Set `UPSTREAM_REPO` to your fork URL and `UPSTREAM_BRANCH` to `main`.
+5. Under **Deploy**, connect your GitHub repo and deploy the `main` branch.
+6. Under **Resources**, ensure the `web` dyno is switched ON.
 
-| Requirement | Description | Source |
-| :--- | :--- | :--- |
-| Python 3.13 | Programming language | [python.org](https://python.org) |
-| MongoDB | Database | [mongodb.com](https://mongodb.com) |
-| Telegram API | API credentials | [my.telegram.org](https://my.telegram.org/apps) |
-| Bot Token | From @BotFather | [@BotFather](https://t.me/BotFather) |
-| Public Server | VPS/Dedicated server | Any provider |
-| Storage Channel | For file storage | Create in Telegram |
-
-### Installation
-
-#### Docker Installation (Recommended)
+### Docker / VPS Deployment
 
 ```bash
 # 1. Clone repository
-git clone https://github.com/fyaz05/FileToLink.git
-cd FileToLink
-
-# 2. Configure
-cp config_sample.env config.env
-nano config.env  # Edit your settings
-
-# 3. Build and run
-docker build -t cloudstation .
-docker run -d --name cloudstation -p 8080:8080 cloudstation
-```
-
-<details>
-<summary>Manual Installation</summary>
-
-```bash
-# 1. Clone repository
-git clone https://github.com/fyaz05/FileToLink.git
-cd FileToLink
+git clone https://github.com/mdsaif572/FileToLinksssss.git
+cd FileToLinksssss
 
 # 2. Setup virtual environment
 python3 -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
+source venv/bin/activate
 
 # 3. Install dependencies
 pip install -r requirements.txt
 
-# 4. Configure
+# 4. Configure environment
 cp config_sample.env config.env
 nano config.env
 
-# 5. Run bot
-python -m Thunder
-```
-
-> **Tip:** Start with the essential configuration to get Cloud Station running, then add optional features as needed.
-
-</details>
-
-## Quick Deploy
-
-### Deploy to Koyeb
-
-[![Deploy to Koyeb](https://www.koyeb.com/static/images/deploy/button.svg)](https://app.koyeb.com/deploy?type=docker&image=docker.io/fyaz05/thunder:latest&name=thunder&ports=8080;http;/&env[API_ID]=&env[API_HASH]=&env[BOT_TOKEN]=&env[BIN_CHANNEL]=&env[OWNER_ID]=&env[DATABASE_URL]=&env[FQDN]=)
-
-After deployment, to add any additional environment variables, use the Koyeb dashboard under **Settings** → **Environment Variables**.
-
-### Deploy to Render
-
-1. Open [Render Dashboard](https://dashboard.render.com) → **New** → **Web Service**
-2. Choose **Existing Image**: `fyaz05/thunder:latest`
-3. Add your environment variables
-4. Click **Deploy**
-
-### Deploy to Railway
-
-1. Open [Railway](https://railway.app) → **New Project** → **Deploy Service**
-2. Choose **Docker Image**: `fyaz05/thunder:latest`
-3. Add your environment variables
-4. Click **Deploy**
-
-### Deploy to Heroku
-
-1. Install the [Heroku CLI](https://devcenter.heroku.com/articles/heroku-cli) and login.
-2. Create an app in the EU region (required for GDPR compliance):
-   ```bash
-   heroku create your-app-name --region eu
-   heroku stack:set container
-   ```
-3. Set your config vars:
-   ```bash
-   heroku config:set API_ID="your_id" API_HASH="your_hash" BOT_TOKEN="your_token" \
-     BIN_CHANNEL="-100xxx" OWNER_ID="your_id" FQDN="your-app-name.herokuapp.com" \
-     HAS_SSL="True" NO_PORT="True" PORT="8080"
-   ```
-4. Set `DATABASE_URL` via the Heroku Dashboard or API (ampersand in MongoDB URL causes shell issues).
-5. Deploy via source upload (Heroku does not support direct git push with API key auth):
-   ```bash
-   # Create source tarball
-   tar -czf source.tar.gz --exclude='.git' --exclude='__pycache__' .
-   # Upload via Heroku Builds API — see devcenter.heroku.com/articles/build-and-release-using-the-api
-   ```
-6. Scale the dyno:
-   ```bash
-   heroku ps:scale web=1
-   ```
-7. Set `UPSTREAM_REPO` for auto-updates on dyno restart:
-   ```bash
-   heroku config:set UPSTREAM_REPO="https://github.com/fyaz05/FileToLink" UPSTREAM_BRANCH="main"
-   ```
-
-> **Note:** Heroku provides HTTPS automatically. Set `FQDN` to `your-app-name.herokuapp.com` and `HAS_SSL` to `True`.
-
-> **Note:** See the [Configuration](#configuration) section for required environment variables.
-
-## Reverse Proxy Setup
-
-<details>
-<summary>Reverse Proxy Guide</summary>
-
-This guide will help you set up a secure reverse proxy using **NGINX** for your file streaming bot with **Cloudflare SSL protection**.
-
----
-
-#### ✅ What You Need
-
-- A **VPS or server** running Ubuntu/Debian with NGINX installed.
-- Your **file streaming bot** running on a local port (e.g., `8080`).
-- A **subdomain** (e.g., `f2l.thunder.com`) set up in **Cloudflare**.
-- **Cloudflare Origin Certificate** files: `cert.pem` and `key.key`.
-
----
-
-#### 🔐 Step 1: Configure Cloudflare
-
-- **DNS**: Add an `A` record for your subdomain pointing to your server's IP. Ensure **Proxy Status** is **Proxied (orange cloud)**.
-- **SSL**: In the **SSL/TLS** tab, set the encryption mode to **Full (strict)**.
-
----
-
-#### 🛡️ Step 2: Set Up SSL Certificates on Server
-
-Create a folder for your certificates and place `cert.pem` and `key.key` inside. Secure the private key.
-
-```bash
-sudo mkdir -p /etc/ssl/cloudflare/f2l.thunder.com
-# Move/copy your cert.pem and key.key files into this directory
-sudo chmod 600 /etc/ssl/cloudflare/f2l.thunder.com/key.key
-sudo chmod 644 /etc/ssl/cloudflare/f2l.thunder.com/cert.pem
+# 5. Start with launcher script
+bash thunder.sh
 ```
 
 ---
 
-#### 🛠️ Step 3: Create NGINX Configuration
+## Troubleshooting & FAQ
 
-Create a new file at `/etc/nginx/sites-available/f2l.thunder.conf` and paste the following, replacing `f2l.thunder.com` and `8080` with your values.
+#### Q: How do I test if the streaming server is working?
+Visit `https://<YOUR_DOMAIN>/status` in your browser. It will return a JSON document showing server uptime, active clients, and streaming metrics.
 
-```nginx
-server {
-    listen 443 ssl;
-    listen [::]:443 ssl;
-    server_name f2l.thunder.com;
+#### Q: Why do I get "400 CHANNEL_INVALID" on startup?
+Ensure your primary bot and all multi-client bots have been added to your storage channel (`BIN_CHANNEL`) as **Administrators** with full permissions (Post Messages, Delete Messages, Edit Messages).
 
-    # SSL Configuration
-    ssl_certificate     /etc/ssl/cloudflare/f2l.thunder.com/cert.pem;
-    ssl_certificate_key /etc/ssl/cloudflare/f2l.thunder.com/key.key;
-
-    # Basic security
-    add_header X-Frame-Options DENY;
-    add_header X-Content-Type-Options nosniff;
-
-    location / {
-        # Forward requests to your bot
-        proxy_pass http://localhost:8080;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        
-        # Settings for file streaming
-        proxy_buffering off;
-        proxy_request_buffering off;
-        client_max_body_size 0;
-    }
-}
-
-# Redirect HTTP to HTTPS
-server {
-    listen 80;
-    listen [::]:80;
-    server_name f2l.thunder.com;
-    return 301 https://$host$request_uri;
-}
-```
+#### Q: Why do video files play without sound in Chrome?
+Telegram files encoded with AC3/EAC3 or DTS audio codecs cannot be decoded by standard browser engines. Use external players like **VLC**, **MX Player**, or **MPV** by pasting the stream URL directly.
 
 ---
-
-#### 🔄 Step 4: Test and Apply Changes
-
-Enable the configuration, test it, and reload NGINX.
-
-```bash
-sudo ln -s /etc/nginx/sites-available/f2l.thunder.conf /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo systemctl reload nginx
-```
-
-Your reverse proxy is now securely streaming files behind Cloudflare!
-
-</details>
-
-## Support & Community
-
-### Troubleshooting & FAQ
-
-#### **Initial Setup**
-
-**Q: Why isn't my bot responding after setup?**
-A: This is usually a configuration issue. Please check the following:
-
-1. **Verify `config.env`**: Make sure all essential variables (`API_ID`, `API_HASH`, `BOT_TOKEN`, `BIN_CHANNEL`, `DATABASE_URL`) are filled in correctly.
-2. **Use `config.env` Only**: Do not edit `vars.py` or `config_sample.env`. The bot is designed to only read your settings from `config.env`.
-3. **Check Logs**: Review the console logs on your server or hosting platform (Koyeb, Render, Heroku) for any startup errors.
-
-**Q: What do I use for the `FQDN` variable?**
-A: It's the public URL or IP address of your bot.
-
-- **With a Domain**: Use your subdomain (e.g., `f2l.thunder.com`).
-- **On Koyeb/Render/Heroku**: Use the public URL provided by the platform.
-- **On a VPS**: Use your server's public IP address.
-
-**Q: Why are my links not working on a VPS?**
-A: For links to work on a VPS, the URL must include the port number (e.g., `http://YOUR_VPS_IP:8080`). Ensure that `NO_PORT` is set to `False` in `config.env` and that your server is configured to allow traffic through that port.
-
-#### **Common Errors**
-
-**Q: Why are my links showing a "Resource Not Found" error or not working?**
-A: This error means the bot can't access the file. Check these three things:
-
-1. **Invalid Token**: Your `BOT_TOKEN` or one of the `MULTI_TOKEN`s might be wrong. Double-check them with @BotFather.
-2. **Missing Admin Rights**: The bot and **all** your client accounts must be **administrators** in the `BIN_CHANNEL`.
-3. **File Deleted**: The link will break if the file was deleted from your `BIN_CHANNEL`.
-
-**Q: Why isn't video or audio playing correctly in my browser?**
-A: Your browser likely doesn't support the file's audio or video format (codec). This is a browser limitation, not a bot issue.
-
-- **Solution**: For perfect playback, copy the link and play it in a dedicated media player. Recommended players include **VLC Media Player**, **MX Player**, **PotPlayer**, **IINA**, and **MPV**.
-
-**Q: Why does the bot sometimes become unresponsive?**
-A: This is likely a **Telegram Flood Wait**. To prevent spam, Telegram temporarily limits accounts that make too many requests. The bot is designed to handle this automatically by pausing and will resume on its own once the limit is lifted.
-
-#### **Performance**
-
-**Q: How can I fix slow download and streaming speeds?**
-A: If your speeds are slow, here’s how to fix it:
-
-- **Add More Clients**: This is the best solution. Add `MULTI_TOKEN`s to your `config.env` to distribute the workload and increase throughput.
-- **Use DC4 Accounts**: For top performance, use Telegram accounts from **Data Center 4 (DC4)**, as they often have the fastest connection. Use `/dc` to check an account's data center.
-- **Upgrade Your Server**: A server with a slow network will bottleneck your speeds. Consider upgrading your VPS plan.
-
-#### **Bot Usage**
-
-**Q: How do I generate links for multiple files at once?**
-A: The `/link` command can process multiple files sent in sequence. To use it, **reply to the first file** of the series with the command and the total count.
-
-- **Example**: For a series of 5 files, reply to the very first file with `/link 5`.
-
-**Q: Can I mix tokens from different accounts and data centers?**
-A: Yes. Mixing clients from different accounts and data centers (like DC1, DC4, and DC5) is a great way to improve bot performance and reliability.
-
-### Contributing
-
-Contributions are welcome! Please follow these steps:
-
-1. Fork the repository.
-2. Create a new feature branch (`git checkout -b feature/amazing-feature`).
-3. Commit your changes (`git commit -m 'Add some amazing feature'`).
-4. Push to the branch (`git push origin feature/amazing-feature`).
-5. Open a Pull Request.
 
 ## License
 
-Licensed under the [Apache License 2.0](LICENSE). See the `LICENSE` file for details.
-
-## Acknowledgments
-
-- [WZGram](https://github.com/rjriajul/wzgram) - Telegram MTProto API Framework (Pyrogram fork)
-- [aiohttp](https://github.com/aio-libs/aiohttp) - Asynchronous HTTP Client/Server
-- [PyMongo](https://github.com/mongodb/mongo-python-driver) - Asynchronous MongoDB Driver
-- [TgCrypto](https://github.com/pyrogram/tgcrypto) - High-performance cryptography library
-
-## ⚠️ Disclaimer
-
-This project is not affiliated with Telegram. Use it responsibly and in compliance with Telegram's Terms of Service and all applicable local regulations.
-
----
-
-<p align="center">
-  <b>⭐ Star this project if you find it useful!</b><br>
-  <a href="https://github.com/fyaz05/FileToLink/issues/new">Report Bug</a> •
-  <a href="https://github.com/fyaz05/FileToLink/issues/new">Request Feature</a>
-</p>
+Licensed under the [Apache License 2.0](LICENSE). Built for high reliability, maximum speed, and production media delivery.

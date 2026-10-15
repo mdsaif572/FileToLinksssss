@@ -3,11 +3,18 @@
 import asyncio
 from typing import Optional, Tuple, Dict, Any
 
-import speedtest
+try:
+    import speedtest
+except ImportError:
+    speedtest = None
+
 from Thunder.utils.logger import logger
 
 
 async def run_speedtest() -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    if speedtest is None:
+        logger.warning("speedtest-cli is not installed. Cannot run speedtest.")
+        return None, None
     try:
         return await asyncio.to_thread(_perform_speedtest)
     except Exception as e:
