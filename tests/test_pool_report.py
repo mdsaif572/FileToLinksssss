@@ -61,6 +61,25 @@ class TokenParserIdsTest(unittest.TestCase):
         self.assertEqual(sorted(tokens), [1, 29])
         self.assertEqual(tokens[29], "292929:zzz")
 
+    def test_look_alike_keys_do_not_hijack_a_slot(self):
+        os.environ["MULTI_TOKEN1"] = "111:real"
+        os.environ["MULTI_TOKEN1_BACKUP"] = "999:stale"
+        os.environ["MULTI_TOKENEXTRA7"] = "888:junk"
+        self.addCleanup(lambda: [os.environ.pop(k, None) for k in
+                                 ("MULTI_TOKEN1_BACKUP", "MULTI_TOKENEXTRA7")])
+
+        tokens = TokenParser().parse_from_env()
+
+        self.assertEqual(tokens, {1: "111:real"})
+
+    def test_slots_above_fifty_are_supported(self):
+        os.environ["MULTI_TOKEN150"] = "150150:big"
+        self.addCleanup(lambda: os.environ.pop("MULTI_TOKEN150", None))
+
+        tokens = TokenParser().parse_from_env()
+
+        self.assertEqual(tokens[150], "150150:big")
+
     def test_empty_slots_are_skipped(self):
         os.environ["MULTI_TOKEN1"] = "   "
         os.environ["MULTI_TOKEN3"] = "333:ccc"

@@ -1,6 +1,7 @@
 # Thunder/bot/clients.py
 
 import asyncio
+import os
 
 from pyrogram import Client
 from pyrogram.errors import FloodWait
@@ -42,6 +43,11 @@ async def _can_read_bin_channel(client, label: str) -> bool:
 
 
 SHUTDOWN_TIMEOUT_SECONDS = 20.0
+
+# How many pool clients may start (and be verified) at the same time. Starting a
+# hundred hundred MTProto sessions in one burst invites throttling, and the
+# platform gives the process a limited boot budget (Heroku: 60s, R10 after).
+POOL_START_CONCURRENCY = max(int(os.getenv("POOL_START_CONCURRENCY", "10")), 1)
 
 
 async def _stop_client(client) -> None:
@@ -138,7 +144,15 @@ async def initialize_clients():
             logger.error(f"   ✖ Failed to start Client ID {client_id}. Error: {e}", exc_info=True)
             return None
 
-    clients = await asyncio.gather(*[start_client(i, token) for i, token in all_tokens.items() if token])
+    start_slots = asyncio.Semaphore(POOL_START_CONCURRENCY)
+
+    async def start_bounded(client_id, token):
+        async with start_slots:
+            return await start_client(client_id, token)
+
+    clients = await asyncio.gather(
+        *[start_bounded(i, token) for i, token in all_tokens.items() if token]
+    )
     clients = [client for client in clients if client]
 
     multi_clients.update(dict(clients))

@@ -105,6 +105,24 @@ class InitializeClientsTest(unittest.IsolatedAsyncioTestCase):
         multi_clients.clear()
         work_loads.clear()
 
+    async def test_a_large_pool_still_starts_every_client(self):
+        tokens = {index: f"token-{index}" for index in range(1, 31)}
+        FakeTokenParser.tokens = tokens
+
+        def factory(**kwargs):
+            return FakePoolClient(name=kwargs.get("bot_token"), bot_token=kwargs.get("bot_token"))
+
+        with mock.patch.object(clients_module, "Client", side_effect=factory):
+            with mock.patch.object(clients_module.asyncio, "sleep", new=_instant_sleep):
+                await clients_module.initialize_clients()
+
+        self.assertEqual(
+            len(multi_clients), len(tokens) + 1,
+            "bounded concurrency must not drop clients from a 30+ pool"
+        )
+        for index in tokens:
+            self.assertIn(index, work_loads)
+
     async def test_unusable_pool_client_is_dropped_from_the_pool(self):
         def factory(**kwargs):
             token = kwargs.get("bot_token")
