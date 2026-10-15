@@ -37,6 +37,7 @@ class Database:
         self.restart_message_col: AsyncCollection = self.db.restart_message
         self.files_col: AsyncCollection = self.db.files
         self.file_ingest_locks_col: AsyncCollection = self.db.file_ingest_locks
+        self.banned_ips_col: AsyncCollection = self.db.banned_ips
 
     async def _deduplicate_users(self) -> None:
         pipeline = [
@@ -74,6 +75,7 @@ class Database:
             await self.token_col.create_index([("user_id", 1), ("activated", 1), ("expires_at", 1)])
             await self.files_col.create_index([("last_seen_at", -1), ("seen_count", -1)])
             await self.file_ingest_locks_col.create_index("expires_at", expireAfterSeconds=0)
+            await self.banned_ips_col.create_index("ip", unique=True)
 
             logger.debug("Database indexes ensured.")
             return True
@@ -470,6 +472,45 @@ class Database:
         except Exception as e:
             logger.error(f"Error checking ingest claim for {file_unique_id}: {e}", exc_info=True)
             raise
+
+    async def add_banned_ip(
+        self,
+        ip: str,
+        reason: Optional[str] = None,
+        banned_by: Optional[int] = None
+    ) -> None:
+        try:
+            await self.banned_ips_col.update_one(
+                {"ip": ip},
+                {
+                    "$set": {
+                        "ip": ip,
+                        "banned_at": datetime.datetime.now(datetime.timezone.utc),
+                        "banned_by": banned_by,
+                        "reason": reason
+                    }
+                },
+                upsert=True
+            )
+        except Exception as e:
+            logger.error(f"Error banning ip {ip}: {e}", exc_info=True)
+            raise
+
+    async def remove_banned_ip(self, ip: str) -> bool:
+        try:
+            result = await self.banned_ips_col.delete_one({"ip": ip})
+            return result.deleted_count > 0
+        except Exception as e:
+            logger.error(f"Error unbanning ip {ip}: {e}", exc_info=True)
+            raise
+
+    async def get_banned_ips(self) -> list:
+        try:
+            cursor = self.banned_ips_col.find({}, {"_id": 0})
+            return await cursor.to_list(length=1000)
+        except Exception as e:
+            logger.error(f"Error listing banned ips: {e}", exc_info=True)
+            return []
 
     async def set_file_revoked(
         self,

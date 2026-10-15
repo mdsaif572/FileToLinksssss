@@ -24,6 +24,7 @@ from Thunder.utils.canonical_files import (
 from Thunder.utils.custom_dl import ByteStreamer, client_label
 from Thunder.utils.file_properties import get_media
 from Thunder.utils.logger import logger
+from Thunder.utils.ip_blocker import is_ip_banned
 from Thunder.utils.metrics import metrics
 from Thunder.utils.render_template import render_media_page, render_page
 from Thunder.utils.time_format import get_readable_time
@@ -92,6 +93,10 @@ class UserStreamLimiter:
 
     def total(self) -> int:
         return sum(self._active.values())
+
+    def snapshot(self) -> dict:
+        """Active stream counts per caller, busiest first."""
+        return dict(sorted(self._active.items(), key=lambda item: item[1], reverse=True))
 
 
 user_streams = UserStreamLimiter(MAX_CONCURRENT_PER_USER)
@@ -281,6 +286,19 @@ def parse_range_header(range_header: str, file_size: int) -> tuple[int, int]:
         )
 
     return start, end
+
+
+def reject_banned_caller(request: web.Request) -> None:
+    """Refuse a blocked caller before any pool slot is taken.
+
+    The check is an O(1) set lookup (``ip_blocker``), so it can run on every
+    media request without adding measurable latency to streaming.
+    """
+    caller = caller_key(request)
+    if is_ip_banned(caller):
+        metrics.record_error("blocked_ip", caller)
+        logger.warning(f"Denied request from banned caller {caller}")
+        raise web.HTTPForbidden(text="Access denied")
 
 
 def _unavailable_error(reason: str, public_hash: str) -> web.HTTPException:
@@ -515,6 +533,7 @@ async def status_endpoint(request):
                 "per_user_streams": {
                     "limit": user_streams.limit,
                     "active": user_streams.total(),
+                    "callers": user_streams.snapshot(),
                 },
             },
             "metrics": metrics.snapshot()
@@ -587,6 +606,7 @@ async def canonical_thumbnail(request: web.Request):
 @routes.get(r"/watch/f/{secure_hash}/{name:.+}", allow_head=True)
 async def canonical_media_preview(request: web.Request):
     try:
+        reject_banned_caller(request)
         secure_hash = validate_public_hash(request.match_info["secure_hash"])
         file_record = await get_file_by_hash(secure_hash, raise_on_error=False)
         if not file_record:
@@ -631,6 +651,7 @@ async def canonical_media_preview(request: web.Request):
 @routes.get(r"/watch/{path:.+}", allow_head=True)
 async def media_preview(request: web.Request):
     try:
+        reject_banned_caller(request)
         path = request.match_info["path"]
         message_id, secure_hash = parse_media_request(path, request.query)
 
@@ -666,6 +687,7 @@ async def media_preview(request: web.Request):
 @routes.get(r"/f/{secure_hash}/{name:.+}", allow_head=True)
 async def canonical_media_delivery(request: web.Request):
     try:
+        reject_banned_caller(request)
         secure_hash = validate_public_hash(request.match_info["secure_hash"])
         file_record = await get_file_by_hash(secure_hash, raise_on_error=False)
         if not file_record:
@@ -754,6 +776,7 @@ async def canonical_media_delivery(request: web.Request):
 @routes.get(r"/{path:.+}", allow_head=True)
 async def media_delivery(request: web.Request):
     try:
+        reject_banned_caller(request)
         path = request.match_info["path"]
         message_id, secure_hash = parse_media_request(path, request.query)
 

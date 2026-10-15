@@ -1,6 +1,6 @@
 # Web-Based Admin Dashboard Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Build a secure, high-performance, real-time Web Admin Dashboard at `/admin` with live metrics, multi-client pool health monitoring, active streams table, and IP ban/unban controls.
 
@@ -47,24 +47,24 @@
 - Produces: `get_banned_ips() -> list[dict]`
 - Consumes: `caller_key(request)` from `Thunder/server/stream_routes.py`
 
-- [ ] **Step 1: Write unit tests for IP blocker**
+- [x] **Step 1: Write unit tests for IP blocker**
 Create `tests/test_ip_blocker.py` testing ban, unban, idempotent bans, and check functions.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 Run: `python -m unittest tests/test_ip_blocker.py`
 Expected: FAIL (module not found)
 
-- [ ] **Step 3: Implement `Thunder/utils/ip_blocker.py`**
+- [x] **Step 3: Implement `Thunder/utils/ip_blocker.py`**
 Implement in-memory set cache for $O(1)$ checks with MongoDB sync if database is available.
 
-- [ ] **Step 4: Integrate `is_ip_banned` check into `Thunder/server/stream_routes.py`**
+- [x] **Step 4: Integrate `is_ip_banned` check into `Thunder/server/stream_routes.py`**
 Before acquiring `user_streams` or selecting a client, check `is_ip_banned(caller_key(request))` and raise `web.HTTPForbidden(text="Access denied")` if banned.
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 Run: `python -m unittest tests/test_ip_blocker.py`
 Expected: PASS
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 ```bash
 git add Thunder/utils/ip_blocker.py Thunder/server/stream_routes.py tests/test_ip_blocker.py
 git commit -m "feat: add IP blocker utility and integrate with stream routes"
@@ -86,24 +86,24 @@ git commit -m "feat: add IP blocker utility and integrate with stream routes"
 - Produces: `verify_admin_session(request: web.Request) -> bool`
 - Produces: `verify_admin_password(password: str) -> bool`
 
-- [ ] **Step 1: Write unit tests for session generation and validation**
+- [x] **Step 1: Write unit tests for session generation and validation**
 Create `tests/test_admin_auth.py` testing password check, cookie signing, expiry, and invalid token rejection.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 Run: `python -m unittest tests/test_admin_auth.py`
 Expected: FAIL
 
-- [ ] **Step 3: Add `WEB_ADMIN_PASSWORD` to `Thunder/vars.py` and `config_sample.env`**
+- [x] **Step 3: Add `WEB_ADMIN_PASSWORD` to `Thunder/vars.py` and `config_sample.env`**
 Add `WEB_ADMIN_PASSWORD: str = os.getenv("WEB_ADMIN_PASSWORD", "")` to `Var`.
 
-- [ ] **Step 4: Implement `Thunder/server/admin_auth.py`**
+- [x] **Step 4: Implement `Thunder/server/admin_auth.py`**
 Use `hmac` and `secrets` to generate and verify timestamped, cryptographically signed tokens.
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 Run: `python -m unittest tests/test_admin_auth.py`
 Expected: PASS
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 ```bash
 git add Thunder/vars.py config_sample.env Thunder/server/admin_auth.py tests/test_admin_auth.py
 git commit -m "feat: add admin authentication and session management"
@@ -121,10 +121,10 @@ git commit -m "feat: add admin authentication and session management"
 - Consumes: Jinja2 template rendering via `Thunder.utils.render_template`
 - Produces: HTML pages with CSS/JS for real-time polling to `/api/admin/stats` and ban/unban actions.
 
-- [ ] **Step 1: Create `Thunder/template/admin_login.html`**
+- [x] **Step 1: Create `Thunder/template/admin_login.html`**
 Clean dark-mode card with password input, error alert, and submit button.
 
-- [ ] **Step 2: Create `Thunder/template/admin_dashboard.html`**
+- [x] **Step 2: Create `Thunder/template/admin_dashboard.html`**
 High-aesthetic glassmorphism dashboard with:
 - Top stats banner: Uptime, Active Streams, Bandwidth Served, Total Files, Bot Count.
 - System metrics: RAM/CPU usage (if available), errors counter.
@@ -133,7 +133,7 @@ High-aesthetic glassmorphism dashboard with:
 - Banned IPs Table: IP, Timestamp, "Unban" button.
 - JavaScript polling engine that updates counters and tables without page reload.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 ```bash
 git add Thunder/template/admin_login.html Thunder/template/admin_dashboard.html
 git commit -m "feat: create modern admin dashboard and login templates"
@@ -158,29 +158,59 @@ git commit -m "feat: create modern admin dashboard and login templates"
   - `POST /api/admin/ban_ip`
   - `POST /api/admin/unban_ip`
 
-- [ ] **Step 1: Write integration tests in `tests/test_web_admin_dashboard.py`**
+- [x] **Step 1: Write integration tests in `tests/test_web_admin_dashboard.py`**
 Test login GET/POST, dashboard access guard, stats API response structure, and ban/unban API workflows.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 Run: `python -m unittest tests/test_web_admin_dashboard.py`
 Expected: FAIL
 
-- [ ] **Step 3: Implement `Thunder/server/admin_routes.py`**
+- [x] **Step 3: Implement `Thunder/server/admin_routes.py`**
 Implement the handlers with proper auth checks, JSON responses, error handling, and session cookie setting/clearing.
 
-- [ ] **Step 4: Register `admin_routes` in `Thunder/server/__init__.py`**
+- [x] **Step 4: Register `admin_routes` in `Thunder/server/__init__.py`**
 Import `admin_routes` and attach to `web_app`.
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 Run: `python -m unittest tests/test_web_admin_dashboard.py`
 Expected: PASS
 
-- [ ] **Step 6: Run full test suite**
+- [x] **Step 6: Run full test suite**
 Run: `python -m unittest discover -s tests -t .`
 Expected: All 125+ tests PASS
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 ```bash
 git add Thunder/server/admin_routes.py Thunder/server/__init__.py tests/test_web_admin_dashboard.py
 git commit -m "feat: implement web admin dashboard endpoints and integration tests"
 ```
+
+
+---
+
+## Status: implemented (2026-10-15)
+
+All four tasks are in `main` with tests: `tests/test_ip_blocker.py`,
+`tests/test_admin_auth.py`, `tests/test_web_admin_dashboard.py`.
+
+Delivered:
+
+- `Thunder/utils/ip_blocker.py` — O(1) in-memory ban cache, MongoDB persistence,
+  loaded at boot (`load_banned_ips()`), a ban takes effect without a restart and
+  survives one; a database failure keeps the in-memory ban rather than reopening
+  access.
+- `Thunder/server/admin_auth.py` — constant-time password check against
+  `WEB_ADMIN_PASSWORD`, `<issued_at>.<hmac>` session cookie (HttpOnly, SameSite
+  Lax, Secure when `HAS_SSL`), 12h TTL, per-IP login throttling (8 failures per
+  5 minutes). The signing key is per process, so a restart logs everyone out.
+- `Thunder/template/admin_login.html`, `admin_dashboard.html` — dark responsive
+  UI polling `/api/admin/stats` every 3s: streams/failed/bandwidth/cache/RAM
+  cards, bot pool table (id, DC, per-channel access, load), active callers with
+  one-click ban, banned table with unban, last error.
+- `Thunder/server/admin_routes.py`, registered in `Thunder/server/__init__.py`
+  **before** the `/{path:.+}` catch-all: `GET /admin`, `POST /admin/login`,
+  `POST /admin/logout`, `GET /admin/dashboard`, `GET /api/admin/stats`,
+  `POST /api/admin/ban_ip`, `POST /api/admin/unban_ip`, plus a public
+  `GET /healthz` that exposes no configuration.
+- Streaming routes check the ban before taking a pool slot and answer
+  `403 Forbidden` (counted as `blocked_ip` in the metrics).

@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard — Cloud Station</title>
+<style>
+  :root { --bg:#07080d; --panel:rgba(20,22,34,.72); --line:rgba(255,255,255,.09);
+          --text:#eef1f8; --muted:#98a0b8; --accent:#6366f1; --ok:#34d399; --danger:#ef4444; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:24px; color:var(--text); min-height:100vh;
+         background:radial-gradient(1200px 600px at 15% -10%,#1b1f3a 0%,var(--bg) 55%);
+         font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  header { display:flex; align-items:center; gap:16px; margin-bottom:20px; flex-wrap:wrap; }
+  h1 { margin:0; font-size:20px; }
+  .grow { flex:1; }
+  .pill { padding:5px 11px; border-radius:999px; border:1px solid var(--line);
+          background:var(--panel); color:var(--muted); font-size:12px; }
+  button { padding:8px 14px; border-radius:9px; border:1px solid var(--line);
+           background:var(--panel); color:var(--text); cursor:pointer; font-size:13px; }
+  button:hover { border-color:var(--accent); }
+  button.danger { border-color:rgba(239,68,68,.45); color:#fecaca; }
+  button.danger:hover { background:rgba(239,68,68,.16); }
+  .cards { display:grid; gap:12px; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); margin-bottom:22px; }
+  .card { padding:14px 16px; border-radius:14px; border:1px solid var(--line); background:var(--panel); }
+  .card .k { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.08em; }
+  .card .v { font-size:22px; font-weight:600; margin-top:4px; }
+  section { margin-bottom:22px; }
+  section h2 { font-size:13px; text-transform:uppercase; letter-spacing:.1em; color:var(--muted); margin:0 0 10px; }
+  table { width:100%; border-collapse:collapse; border:1px solid var(--line); border-radius:12px;
+          overflow:hidden; background:var(--panel); }
+  th, td { padding:9px 12px; text-align:left; font-size:13px; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-weight:500; font-size:11px; text-transform:uppercase; letter-spacing:.07em; }
+  tr:last-child td { border-bottom:0; }
+  td.mono, .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; }
+  .ok { color:var(--ok); } .bad { color:var(--danger); }
+  #toast { position:fixed; right:20px; bottom:20px; padding:10px 14px; border-radius:10px;
+           background:var(--panel); border:1px solid var(--line); opacity:0; transition:opacity .25s; }
+  #toast.show { opacity:1; }
+  .empty { color:var(--muted); padding:12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Cloud Station Admin</h1>
+  <span class="pill">v{{ version }}</span>
+  <span class="pill" id="uptime">uptime —</span>
+  <span class="grow"></span>
+  <span class="pill" id="updated">loading…</span>
+  <form method="post" action="/admin/logout" style="margin:0">
+    <button type="submit">Sign out</button>
+  </form>
+</header>
+
+<div class="cards">
+  <div class="card"><div class="k">Active streams</div><div class="v" id="mActive">—</div></div>
+  <div class="card"><div class="k">Streams served</div><div class="v" id="mCompleted">—</div></div>
+  <div class="card"><div class="k">Failed</div><div class="v" id="mFailed">—</div></div>
+  <div class="card"><div class="k">Bandwidth</div><div class="v" id="mBytes">—</div></div>
+  <div class="card"><div class="k">Cache hit rate</div><div class="v" id="mCache">—</div></div>
+  <div class="card"><div class="k">Bot pool</div><div class="v" id="mBots">—</div></div>
+  <div class="card"><div class="k">Process memory</div><div class="v" id="mRam">—</div></div>
+  <div class="card"><div class="k">Banned callers</div><div class="v" id="mBanned">—</div></div>
+</div>
+
+<section>
+  <h2>Bot pool</h2>
+  <table><thead><tr><th>Client</th><th>DC</th><th>Channels</th><th>Load</th></tr></thead>
+    <tbody id="bots"></tbody></table>
+</section>
+
+<section>
+  <h2>Active callers</h2>
+  <table><thead><tr><th>IP</th><th>Streams</th><th>Limit</th><th></th></tr></thead>
+    <tbody id="callers"></tbody></table>
+</section>
+
+<section>
+  <h2>Banned callers</h2>
+  <table><thead><tr><th>IP</th><th>Reason</th><th>When</th><th></th></tr></thead>
+    <tbody id="banned"></tbody></table>
+</section>
+
+<section>
+  <h2>Last error</h2>
+  <table><tbody id="lastError"><tr><td class="empty">none recorded</td></tr></tbody></table>
+</section>
+
+<div id="toast"></div>
+
+<script>
+const POLL_MS = 3000;
+
+function toast(message) {
+  const el = document.getElementById('toast');
+  el.textContent = message;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 2600);
+}
+
+function humanBytes(value) {
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let size = Number(value) || 0, index = 0;
+  while (size >= 1024 && index < units.length - 1) { size /= 1024; index++; }
+  return index === 0 ? `${Math.round(size)} B` : `${size.toFixed(1)} ${units[index]}`;
+}
+
+function row(cells) {
+  const tr = document.createElement('tr');
+  for (const [text, className] of cells) {
+    const td = document.createElement('td');
+    td.textContent = text;
+    if (className) td.className = className;
+    tr.appendChild(td);
+  }
+  return tr;
+}
+
+function buttonRow(cells, label, className, onClick, ip) {
+  const tr = row(cells);
+  const td = document.createElement('td');
+  const btn = document.createElement('button');
+  btn.textContent = label;
+  btn.className = className || '';
+  btn.addEventListener('click', () => onClick(ip));
+  td.appendChild(btn);
+  tr.appendChild(td);
+  return tr;
+}
+
+async function post(path, body) {
+  const response = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (response.status === 401) { location.href = '/admin'; return null; }
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) { toast(data.error || `Request failed (${response.status})`); return null; }
+  return data;
+}
+
+const ban = ip => post('/api/admin/ban_ip', { ip, reason: 'banned from dashboard' })
+  .then(data => data && toast(`Banned ${ip}`));
+const unban = ip => post('/api/admin/unban_ip', { ip })
+  .then(data => data && toast(`Unbanned ${ip}`));
+
+async function refresh() {
+  const response = await fetch('/api/admin/stats', { cache: 'no-store' });
+  if (response.status === 401) { location.href = '/admin'; return; }
+  const data = await response.json();
+
+  document.getElementById('uptime').textContent = `uptime ${data.server.uptime}`;
+  document.getElementById('updated').textContent = `updated ${new Date().toLocaleTimeString()}`;
+
+  const streams = data.metrics.streams;
+  document.getElementById('mActive').textContent = streams.active;
+  document.getElementById('mCompleted').textContent = streams.completed;
+  document.getElementById('mFailed').textContent = streams.failed;
+  document.getElementById('mBytes').textContent = humanBytes(streams.bytes_served);
+  document.getElementById('mCache').textContent = `${data.metrics.message_cache.hit_rate_percent}%`;
+  document.getElementById('mBots').textContent = data.bots.length;
+  document.getElementById('mRam').textContent = data.process ? `${data.process.rss_mb} MB` : 'n/a';
+  document.getElementById('mBanned').textContent = data.banned_ips.length;
+
+  const bots = document.getElementById('bots');
+  bots.replaceChildren();
+  if (!data.bots.length) bots.appendChild(row([['no clients', 'empty']]));
+  for (const bot of data.bots) {
+    bots.appendChild(row([
+      [`#${bot.id} ${bot.name || ''}`],
+      [bot.dc === null ? '—' : String(bot.dc)],
+      [bot.channels.map(c => c.label + (c.readable ? ' ✓' : ' ✗')).join(', ') || '—'],
+      [String(bot.load)],
+    ]));
+  }
+
+  const callers = document.getElementById('callers');
+  callers.replaceChildren();
+  const entries = Object.entries(data.callers);
+  if (!entries.length) callers.appendChild(row([['no active streams', 'empty']]));
+  for (const [ip, count] of entries) {
+    callers.appendChild(buttonRow(
+      [ [ip, 'mono'], [String(count)], [String(data.limits.per_user || '∞')] ],
+      'Ban IP', 'danger', ban, ip
+    ));
+  }
+
+  const banned = document.getElementById('banned');
+  banned.replaceChildren();
+  if (!data.banned_ips.length) banned.appendChild(row([['nobody is blocked', 'empty']]));
+  for (const entry of data.banned_ips) {
+    banned.appendChild(buttonRow(
+      [ [entry.ip, 'mono'], [entry.reason || '—'], [entry.banned_at || '—'] ],
+      'Unban', '', unban, entry.ip
+    ));
+  }
+
+  const lastError = document.getElementById('lastError');
+  lastError.replaceChildren();
+  if (!data.metrics.last_error) {
+    lastError.appendChild(row([['none recorded', 'empty']]));
+  } else {
+    const error = data.metrics.last_error;
+    lastError.appendChild(row([[`${error.kind} · ${error.seconds_ago}s ago · ${error.detail}`]]));
+  }
+}
+
+refresh();
+setInterval(refresh, POLL_MS);
+</script>
+</body>
+</html>

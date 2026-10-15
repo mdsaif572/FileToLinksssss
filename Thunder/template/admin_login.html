@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin — Cloud Station</title>
+<style>
+  :root { --bg:#07080d; --panel:rgba(20,22,34,.72); --line:rgba(255,255,255,.09);
+          --text:#eef1f8; --muted:#98a0b8; --accent:#6366f1; --danger:#ef4444; }
+  * { box-sizing:border-box; }
+  body { margin:0; min-height:100vh; display:grid; place-items:center; color:var(--text);
+         background:radial-gradient(1200px 600px at 20% -10%,#1b1f3a 0%,var(--bg) 55%);
+         font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  .card { width:min(380px,92vw); padding:28px; border-radius:18px; border:1px solid var(--line);
+          background:var(--panel); backdrop-filter:blur(14px);
+          box-shadow:0 24px 60px rgba(0,0,0,.45); }
+  h1 { margin:0 0 4px; font-size:20px; letter-spacing:.2px; }
+  p.sub { margin:0 0 20px; color:var(--muted); font-size:13px; }
+  label { display:block; font-size:12px; text-transform:uppercase; letter-spacing:.08em;
+          color:var(--muted); margin-bottom:6px; }
+  input { width:100%; padding:12px 14px; border-radius:10px; border:1px solid var(--line);
+          background:rgba(0,0,0,.35); color:var(--text); font-size:15px; }
+  input:focus { outline:none; border-color:var(--accent); }
+  button { width:100%; margin-top:16px; padding:12px 14px; border:0; border-radius:10px;
+           background:linear-gradient(135deg,var(--accent),#8b5cf6); color:#fff;
+           font-size:15px; font-weight:600; cursor:pointer; }
+  button[disabled] { opacity:.45; cursor:not-allowed; }
+  .alert { margin:0 0 14px; padding:10px 12px; border-radius:10px; font-size:13px; }
+  .alert.error { background:rgba(239,68,68,.14); border:1px solid rgba(239,68,68,.4); color:#fecaca; }
+  .alert.warn { background:rgba(245,158,11,.12); border:1px solid rgba(245,158,11,.35); color:#fde68a; }
+</style>
+</head>
+<body>
+  <form class="card" method="post" action="/admin/login">
+    <h1>Cloud Station Admin</h1>
+    <p class="sub">Sign in to view live streams, the bot pool and callers.</p>
+
+    {% if not configured %}
+    <div class="alert warn">
+      <b>WEB_ADMIN_PASSWORD is not set.</b> Add it to the environment to enable
+      the dashboard — until then every request is refused.
+    </div>
+    {% endif %}
+
+    {% if error %}
+    <div class="alert error">{{ error }}</div>
+    {% endif %}
+
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" autocomplete="current-password"
+           placeholder="••••••••" autofocus required {% if not configured %}disabled{% endif %}>
+    <button type="submit" {% if not configured %}disabled{% endif %}>Sign in</button>
+  </form>
+</body>
+</html>

@@ -106,6 +106,10 @@ class Var:
     # Users may send a direct URL and get a Cloud Station link back
     URL_UPLOAD_ENABLED: bool = str_to_bool(os.getenv("URL_UPLOAD_ENABLED", "True"))
 
+    # Password for the /admin web dashboard. Empty disables it entirely (the page
+    # then only shows a setup warning and refuses every request).
+    WEB_ADMIN_PASSWORD: str = os.getenv("WEB_ADMIN_PASSWORD", "").strip().strip('"').strip("'")
+
     CHANNEL: bool = str_to_bool(os.getenv("CHANNEL", "False"))
 
     BANNED_CHANNELS: Set[int] = str_to_int_set(os.getenv("BANNED_CHANNELS", ""))

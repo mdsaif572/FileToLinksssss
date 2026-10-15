@@ -158,6 +158,27 @@ storage channel:
   Only a bot that administers a file's channel can stream that file, and the
   boot log prints the per-channel client counts.
 
+## Web admin dashboard and caller blocking
+
+`/admin` serves a dashboard (login → live stats) built from in-process state; the
+plan lives in `docs/superpowers/plans/2026-10-15-web-admin-dashboard.md`.
+
+- Routes are registered in `Thunder/server/__init__.py` **before** `stream_routes`,
+  because the streaming module ends with a `/{path:.+}` catch-all that would
+  otherwise swallow `/admin`, `/api/admin/*` and `/healthz`.
+- Auth is a signed cookie (`Thunder/server/admin_auth.py`): password from
+  `WEB_ADMIN_PASSWORD` (empty disables the dashboard), 12h TTL, HttpOnly, SameSite
+  Lax, Secure when `HAS_SSL`, per-IP login throttling. The signing key is per
+  process, so a restart invalidates every session.
+- Banned callers live in `Thunder/utils/ip_blocker.py`: an O(1) in-memory set for
+  the per-request check plus MongoDB persistence, loaded at boot. Banning takes
+  effect immediately, unbanning restores access without a restart, and a database
+  failure never reopens access silently. Streaming refuses a banned caller with
+  `403` before taking a pool slot (counted as `blocked_ip`).
+- `GET /healthz` is public on purpose and must stay free of configuration.
+- Read live state through the module (`stream_routes_ref.user_streams`, not a
+  names-imported reference) so a replaced limiter is still reported correctly.
+
 ## File references (streaming)
 
 Telegram file references are bound to the session that fetched the message, and

@@ -212,6 +212,13 @@ async def start_services():
         return
 
     alert_task = None
+    try:
+        from Thunder.utils.ip_blocker import load_banned_ips
+
+        await load_banned_ips()
+    except Exception as e:
+        logger.warning(f"Could not load banned caller IPs: {e}")
+
     print("   ▶ Starting Web Server initialization...")
     try:
         app_runner = web.AppRunner(await web_server())
