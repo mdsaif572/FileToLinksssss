@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional
 from urllib.parse import quote
 
 from pyrogram import Client
-from pyrogram.enums import ChatMemberStatus
+from pyrogram.enums import ButtonStyle, ChatMemberStatus
 from pyrogram.errors import FloodWait
 from pyrogram.types import (InlineKeyboardButton, InlineKeyboardMarkup,
                             Message, User)
@@ -103,14 +103,14 @@ async def reply_user_err(msg: Message, err_txt: str):
     try:
         await msg.reply_text(
             text=err_txt,
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(MSG_BUTTON_GET_HELP, callback_data="help_command")]]),
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(MSG_BUTTON_GET_HELP, callback_data="help_command", style=ButtonStyle.PRIMARY)]]),
             disable_web_page_preview=True
         )
     except FloodWait as e:
         await asyncio.sleep(e.value)
         await msg.reply_text(
             text=err_txt,
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(MSG_BUTTON_GET_HELP, callback_data="help_command")]]),
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(MSG_BUTTON_GET_HELP, callback_data="help_command", style=ButtonStyle.PRIMARY)]]),
             disable_web_page_preview=True
         )
 

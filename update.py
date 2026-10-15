@@ -2,6 +2,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from os import path as opath, getenv
 from dotenv import load_dotenv
 
@@ -86,6 +87,11 @@ def update_via_archive() -> int:
 
         log_info(f'Successfully updated and synchronized with upstream archive (branch: {UPSTREAM_BRANCH})')
         os.environ['UPSTREAM_SYNCED'] = '1'
+        try:
+            with open('.upstream_synced', 'w') as f:
+                f.write(str(time.time()))
+        except Exception:
+            pass
         return 0
     except Exception as e:
         log_error(f'Archive fallback update failed: {e}')
@@ -103,6 +109,17 @@ def update_codebase() -> int:
     if not UPSTREAM_REPO:
         log_info('No UPSTREAM_REPO configured. Booting from local codebase.')
         return 0
+
+    marker_path = '.upstream_synced'
+    if opath.exists(marker_path):
+        try:
+            with open(marker_path, 'r') as f:
+                last_sync = float(f.read().strip())
+            if (time.time() - last_sync) < 60:
+                log_info('Repository already synchronized recently. Skipping redundant update.')
+                return 0
+        except Exception:
+            pass
 
     log_info(f'Connecting to UPSTREAM_REPO: {UPSTREAM_REPO} (branch: {UPSTREAM_BRANCH})...')
 
@@ -166,6 +183,11 @@ def update_codebase() -> int:
         if reset_res.returncode == 0:
             log_info(f'Successfully updated and synchronized with {UPSTREAM_REPO} (branch: {UPSTREAM_BRANCH})')
             os.environ['UPSTREAM_SYNCED'] = '1'
+            try:
+                with open('.upstream_synced', 'w') as f:
+                    f.write(str(time.time()))
+            except Exception:
+                pass
             return 0
         else:
             log_error(f'Failed to reset to upstream branch: {reset_res.stderr.strip()}')

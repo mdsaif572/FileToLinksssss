@@ -3,6 +3,7 @@
 import asyncio
 
 from pyrogram import Client
+from pyrogram.enums import ButtonStyle
 from pyrogram.errors import FloodWait, UserNotParticipant
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
@@ -61,7 +62,7 @@ async def force_channel_check(client: Client, message: Message):
                 await message.reply_text(
                     MSG_COMMUNITY_CHANNEL.format(channel_title=title),
                     reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("Join", url=link)
+                        InlineKeyboardButton("Join", url=link, style=ButtonStyle.SUCCESS)
                     ]])
                 )
             except FloodWait as e:
@@ -69,7 +70,7 @@ async def force_channel_check(client: Client, message: Message):
                 await message.reply_text(
                     MSG_COMMUNITY_CHANNEL.format(channel_title=title),
                     reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("Join", url=link)
+                        InlineKeyboardButton("Join", url=link, style=ButtonStyle.SUCCESS)
                     ]])
                 )
         else:

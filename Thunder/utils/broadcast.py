@@ -5,7 +5,7 @@ import os
 import time
 
 from pyrogram.client import Client
-from pyrogram.enums import ParseMode
+from pyrogram.enums import ButtonStyle, ParseMode
 from pyrogram.errors import (ChatWriteForbidden, FloodWait, PeerIdInvalid, UserDeactivated,
                              UserIsBlocked, ChannelInvalid, InputUserDeactivated)
 from pyrogram.types import (InlineKeyboardButton, InlineKeyboardMarkup,
@@ -43,7 +43,7 @@ async def broadcast_message(client: Client, message: Message, mode: str = "all")
         status_msg = await message.reply_text(
             MSG_BROADCAST_START,
             reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton(MSG_BUTTON_CANCEL_BROADCAST, callback_data=f"cancel_{broadcast_id}")
+                InlineKeyboardButton(MSG_BUTTON_CANCEL_BROADCAST, callback_data=f"cancel_{broadcast_id}", style=ButtonStyle.DANGER)
             ]])
         )
     except FloodWait as e:
@@ -51,7 +51,7 @@ async def broadcast_message(client: Client, message: Message, mode: str = "all")
         status_msg = await message.reply_text(
             MSG_BROADCAST_START,
             reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton(MSG_BUTTON_CANCEL_BROADCAST, callback_data=f"cancel_{broadcast_id}")
+                InlineKeyboardButton(MSG_BUTTON_CANCEL_BROADCAST, callback_data=f"cancel_{broadcast_id}", style=ButtonStyle.DANGER)
             ]])
         )
     except Exception as e:

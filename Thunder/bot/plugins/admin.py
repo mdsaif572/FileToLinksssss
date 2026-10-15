@@ -12,7 +12,7 @@ from io import BytesIO
 import psutil
 from pyrogram import filters
 from pyrogram.client import Client
-from pyrogram.enums import ParseMode
+from pyrogram.enums import ButtonStyle, ParseMode
 from pyrogram.errors import FloodWait, MessageNotModified
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
@@ -72,7 +72,7 @@ async def get_total_users(client: Client, message: Message):
                     text=MSG_DB_STATS.format(total_users=total),
                     parse_mode=ParseMode.MARKDOWN,
                     reply_markup=InlineKeyboardMarkup(
-                        [[InlineKeyboardButton(MSG_BUTTON_CLOSE, callback_data="close_panel")]]))
+                        [[InlineKeyboardButton(MSG_BUTTON_CLOSE, callback_data="close_panel", style=ButtonStyle.DANGER)]]))
     except Exception as e:
         logger.error(f"Error in get_total_users: {e}", exc_info=True)
         await reply(message, text=MSG_DB_ERROR)
@@ -123,7 +123,7 @@ async def show_status(client: Client, message: Message):
                     text=status_text_str,
                     parse_mode=ParseMode.MARKDOWN,
                     reply_markup=InlineKeyboardMarkup(
-                        [[InlineKeyboardButton(MSG_BUTTON_CLOSE, callback_data="close_panel")]]))
+                        [[InlineKeyboardButton(MSG_BUTTON_CLOSE, callback_data="close_panel", style=ButtonStyle.DANGER)]]))
     except Exception as e:
         logger.error(f"Error in show_status: {e}", exc_info=True)
         await reply(message, text=MSG_STATUS_ERROR)
@@ -169,7 +169,7 @@ async def show_stats(client: Client, message: Message):
                     text=stats_text_val,
                     parse_mode=ParseMode.MARKDOWN,
                     reply_markup=InlineKeyboardMarkup(
-                        [[InlineKeyboardButton(MSG_BUTTON_CLOSE, callback_data="close_panel")]]))
+                        [[InlineKeyboardButton(MSG_BUTTON_CLOSE, callback_data="close_panel", style=ButtonStyle.DANGER)]]))
     except Exception as e:
         logger.error(f"Error in show_stats: {e}", exc_info=True)
         await reply(message, text=MSG_STATUS_ERROR)
@@ -273,7 +273,7 @@ async def list_authorized_command(client: Client, message: Message):
                 text=text,
                 parse_mode=ParseMode.MARKDOWN,
                 reply_markup=InlineKeyboardMarkup(
-                    [[InlineKeyboardButton(MSG_BUTTON_CLOSE, callback_data="close_panel")]]))
+                    [[InlineKeyboardButton(MSG_BUTTON_CLOSE, callback_data="close_panel", style=ButtonStyle.DANGER)]]))
 
 
 @StreamBot.on_message(filters.command("ban") & owner_filter)

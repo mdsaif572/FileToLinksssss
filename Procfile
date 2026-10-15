@@ -1,1 +1,1 @@
-web: python -m Thunder
+web: python update.py && python -m Thunder

@@ -1,6 +1,7 @@
 # Thunder/utils/decorators.py
 
 import asyncio
+from pyrogram.enums import ButtonStyle
 from pyrogram.errors import FloodWait
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
@@ -111,7 +112,7 @@ async def require_token(client, message: Message):
             await message.reply_text(
                 MSG_TOKEN_INVALID,
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("Activate Access", url=short_url)]
+                    [InlineKeyboardButton("Activate Access", url=short_url, style=ButtonStyle.SUCCESS)]
                 ])
             )
         except FloodWait as e:
@@ -119,7 +120,7 @@ async def require_token(client, message: Message):
             await message.reply_text(
                 MSG_TOKEN_INVALID,
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("Activate Access", url=short_url)]
+                    [InlineKeyboardButton("Activate Access", url=short_url, style=ButtonStyle.SUCCESS)]
                 ])
             )
         logger.debug(f"Sent temporary token activation link to user {user_id}.")

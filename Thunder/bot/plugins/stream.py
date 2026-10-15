@@ -220,7 +220,7 @@ async def link_handler(bot: Client, msg: Message, **kwargs):
                     MSG_ERROR_START_BOT.format(invite_link=invite_link),
                     disable_web_page_preview=True,
                     parse_mode=enums.ParseMode.MARKDOWN,
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(MSG_BUTTON_START_CHAT, url=invite_link)]])
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(MSG_BUTTON_START_CHAT, url=invite_link, style=enums.ButtonStyle.SUCCESS)]])
                 )
             except FloodWait as e:
                 await asyncio.sleep(e.value)
@@ -228,7 +228,7 @@ async def link_handler(bot: Client, msg: Message, **kwargs):
                     MSG_ERROR_START_BOT.format(invite_link=invite_link),
                     disable_web_page_preview=True,
                     parse_mode=enums.ParseMode.MARKDOWN,
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(MSG_BUTTON_START_CHAT, url=invite_link)]])
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(MSG_BUTTON_START_CHAT, url=invite_link, style=enums.ButtonStyle.SUCCESS)]])
                 )
             return
 
