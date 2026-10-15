@@ -1,8 +1,8 @@
 <p align="center">
 
 [![Deploy to Railyard](https://app.railyard.run/deploy/badge)](https://app.railyard.run/deploy?repo=https://github.com/fyaz05/FileToLink)
-  <img src="https://cdn.jsdelivr.net/gh/fyaz05/Resources@main/FileToLink/Thunder.jpg" alt="Thunder Logo" width="120">
-  <h1 align="center">⚡ Thunder</h1>
+  <img src="https://cdn.jsdelivr.net/gh/fyaz05/Resources@main/FileToLink/Thunder.jpg" alt="Cloud Station Logo" width="120">
+  <h1 align="center">☁️ Cloud Station</h1>
 </p>
 
 <p align="center">
@@ -53,7 +53,7 @@
 
 ## About The Project
 
-**Thunder** is a powerful Telegram bot that transforms Telegram files into high-speed direct links, perfect for both streaming and rapid downloading. Share files via HTTP(S) links without needing to download them from the Telegram client first.
+**Cloud Station** is a powerful Telegram bot that transforms Telegram files into high-speed direct links, perfect for both streaming and rapid downloading. Share files via HTTP(S) links without needing to download them from the Telegram client first.
 
 ### 💡 Perfect For
 
@@ -138,7 +138,7 @@ Copy `config_sample.env` to `config.env` and fill in your values.
 | `BANNED_CHANNELS` | Blocked channel IDs | *(empty)* |
 | `SLEEP_THRESHOLD` | Client switch threshold | `300` |
 | `WORKERS` | Async workers | `8` |
-| `NAME` | Bot name | `ThunderF2L` |
+| `NAME` | Bot name | `CloudStationF2L` |
 | `BIND_ADDRESS` | Bind address | `0.0.0.0` |
 | `PING_INTERVAL` | Ping interval (seconds) | `840` |
 | `TOKEN_ENABLED` | Enable tokens | `False` |
@@ -249,7 +249,7 @@ URL_SHORTENER_SITE=shortener.example.com
 
 ### Rate Limiting System
 
-Thunder implements a sophisticated multi-tier rate limiting system designed for high-performance file sharing:
+Cloud Station implements a sophisticated multi-tier rate limiting system designed for high-performance file sharing:
 
 #### **Priority Queue Architecture**
 
@@ -281,7 +281,7 @@ Features include download/upload speeds, latency measurements, and shareable res
 
 ## Deployment Guide
 
-This section covers the complete setup process for deploying Thunder, from prerequisites to production deployment.
+This section covers the complete setup process for deploying Cloud Station, from prerequisites to production deployment.
 
 ### Prerequisites
 
@@ -308,8 +308,8 @@ cp config_sample.env config.env
 nano config.env  # Edit your settings
 
 # 3. Build and run
-docker build -t thunder .
-docker run -d --name thunder -p 8080:8080 thunder
+docker build -t cloudstation .
+docker run -d --name cloudstation -p 8080:8080 cloudstation
 ```
 
 <details>
@@ -335,7 +335,7 @@ nano config.env
 python -m Thunder
 ```
 
-> **Tip:** Start with the essential configuration to get Thunder running, then add optional features as needed.
+> **Tip:** Start with the essential configuration to get Cloud Station running, then add optional features as needed.
 
 </details>
 

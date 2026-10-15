@@ -3,6 +3,8 @@
 import asyncio
 import glob
 import importlib.util
+import os
+import subprocess
 import sys
 from datetime import datetime
 
@@ -302,6 +304,21 @@ async def start_services():
 
 
 if __name__ == '__main__':
+    # Auto-fetch code from UPSTREAM_REPO on boot if configured
+    if os.getenv("UPSTREAM_REPO") and not os.getenv("UPSTREAM_SYNCED"):
+        try:
+            update_script = Path(__file__).resolve().parent.parent / "update.py"
+            if update_script.exists():
+                res = subprocess.run([sys.executable, str(update_script)], check=False)
+                if res.returncode == 0:
+                    os.environ["UPSTREAM_SYNCED"] = "1"
+                    if sys.platform == "win32":
+                        sys.exit(subprocess.call([sys.executable, "-m", "Thunder"]))
+                    else:
+                        os.execv(sys.executable, [sys.executable, "-m", "Thunder"])
+        except Exception as e:
+            logger.error(f"Error during auto-update check on boot: {e}")
+
     try:
         asyncio.run(start_services())
     except KeyboardInterrupt:

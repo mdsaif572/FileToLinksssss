@@ -1,4 +1,4 @@
-# AGENTS.md — Thunder File-to-Link Bot
+# AGENTS.md — Cloud Station File-to-Link Bot
 
 Python 3.13+ Telegram bot converting files to direct HTTP links. Uses Pyrofork, aiohttp, MongoDB, uvloop.
 

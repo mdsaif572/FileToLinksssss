@@ -4,6 +4,7 @@ import asyncio
 import html
 import os
 import shutil
+import subprocess
 import sys
 import time
 from io import BytesIO
@@ -178,7 +179,11 @@ async def show_stats(client: Client, message: Message):
 async def restart_bot(client: Client, message: Message):
     msg = await reply(message, text=MSG_RESTARTING)
     await db.add_restart_message(msg.id, message.chat.id)
-    os.execv("/bin/bash", ["bash", "thunder.sh"])
+    if sys.platform == "win32":
+        subprocess.run([sys.executable, "update.py"], check=False)
+        sys.exit(subprocess.call([sys.executable, "-m", "Thunder"]))
+    else:
+        os.execv("/bin/bash", ["bash", "thunder.sh"])
 
 
 @StreamBot.on_message(filters.command("log") & owner_filter)
