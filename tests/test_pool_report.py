@@ -15,8 +15,23 @@ os.environ.setdefault("DATABASE_URL", "mongodb://127.0.0.1:27017/test")
 
 from Thunder.utils.config_parser import TokenParser  # noqa: E402
 
+def _load_script(name):
+    spec = importlib.util.spec_from_file_location(
+        name,
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                     "scripts", f"{name}.py"),
+    )
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+check_pool = _load_script("check_pool")
+list_channels = _load_script("list_channels")
+
 _SPEC = importlib.util.spec_from_file_location(
-    "check_pool",
+    "check_pool_unused",
     os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                  "scripts", "check_pool.py"),
 )
@@ -87,6 +102,32 @@ class TokenParserIdsTest(unittest.TestCase):
         tokens = TokenParser().parse_from_env()
 
         self.assertEqual(sorted(tokens), [3])
+
+
+class ListChannelsTest(unittest.TestCase):
+    def test_configured_channel_ids_in_order(self):
+        environ = {"BIN_CHANNEL": "-1001", "BIN_CHANNEL_2": '"-1002"', "BIN_CHANNEL_3": "junk"}
+        self.assertEqual(list_channels.configured_channel_ids(environ), [-1001, -1002])
+
+    def test_row_flags_a_new_channel(self):
+        row = list_channels.format_channel_row(-1002, "Cloud Station 2", "channel", False)
+        self.assertIn("-1002", row)
+        self.assertIn("NOT configured", row)
+
+    def test_row_flags_an_configured_channel(self):
+        row = list_channels.format_channel_row(-1001, "Cloud Station", "channel", True)
+        self.assertIn("configured", row)
+        self.assertNotIn("NOT configured", row)
+
+    def test_summary_lists_every_channel(self):
+        channels = [(-1001, "Main", "channel"), (-1002, "Second", "channel")]
+        summary = list_channels.summarise(channels, [-1001])
+        self.assertIn("Main", summary)
+        self.assertIn("Second", summary)
+        self.assertIn("NOT configured", summary)
+
+    def test_summary_when_nothing_is_visible(self):
+        self.assertIn("No channels visible", list_channels.summarise([], [-1001]))
 
 
 class ConfiguredChannelsTest(unittest.TestCase):

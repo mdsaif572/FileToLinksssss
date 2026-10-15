@@ -146,7 +146,15 @@ storage channel:
   give one file a hundred clients.
 - Links that do not name a channel (`/{id}?hash=`, `/watch/<hash><id>`) resolve
   by trying every configured channel, primary first.
-- Operationally: first ~50 bots in `BIN_CHANNEL`, next ~50 in `BIN_CHANNEL_2`.
+- Finding the id of a new channel: add the primary bot as an administrator, then
+  `python scripts/list_channels.py` (via the bot's `/shell` or a one-off dyno)
+  prints every channel the bot can see with its id and whether it is already
+  configured. `python scripts/check_pool.py` reports the per-token channel access.
+- Sizing facts come from the boot log: it prints the pool start rate, process RSS
+  with per-client cost, and the extrapolated boot time for 100/200/400 clients.
+  On Heroku the boot budget is 60s (R10) and a standard dyno holds ~1 GB.
+- Operationally: first ~50 admins in `BIN_CHANNEL` (counting the owner and the
+  primary bot), the rest in `BIN_CHANNEL_2`.
   Only a bot that administers a file's channel can stream that file, and the
   boot log prints the per-channel client counts.
 
