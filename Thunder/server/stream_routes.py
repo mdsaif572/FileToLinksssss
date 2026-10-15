@@ -33,7 +33,7 @@ routes = web.RouteTableDef()
 SECURE_HASH_LENGTH = 6
 CHUNK_SIZE = 1024 * 1024
 MAX_CONCURRENT_PER_CLIENT = getattr(Var, "MAX_CONCURRENT_PER_CLIENT", 16)
-MAX_CONCURRENT_PER_USER = getattr(Var, "MAX_CONCURRENT_PER_USER", 3)
+MAX_CONCURRENT_PER_USER = getattr(Var, "MAX_CONCURRENT_PER_USER", 8)
 OVERLOAD_RETRY_AFTER_SECONDS = 2
 RANGE_REGEX = re.compile(r"^bytes=(?P<start>\d*)-(?P<end>\d*)$")
 PATTERN_HASH_FIRST = re.compile(
@@ -137,6 +137,31 @@ def validate_public_hash(public_hash: str) -> str:
     if len(secure_hash) != PUBLIC_HASH_LENGTH or not VALID_PUBLIC_HASH_REGEX.match(secure_hash):
         raise InvalidHash("Invalid canonical file hash")
     return secure_hash
+
+
+def caller_key(request: web.Request) -> str:
+    """Identity used for the per-caller stream cap.
+
+    Behind a PaaS every request arrives from the router, so request.remote alone
+    collapses all viewers into one bucket. Heroku (and most proxies) append the
+    real connecting address to X-Forwarded-For; the last entry is the one the
+    proxy added and therefore the only one a client cannot forge. Earlier
+    entries are client-supplied - never key on those.
+    """
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    if forwarded:
+        candidate = forwarded.split(",")[-1].strip()
+        if candidate:
+            return candidate
+    return request.remote or "unknown"
+
+
+def _log_http_exception(scope: str, error: web.HTTPException) -> None:
+    """Client-state errors are normal traffic; only 5xx deserve a warning."""
+    if error.status >= 500:
+        logger.warning(f"HTTP exception in {scope}: {error}")
+    else:
+        logger.debug(f"Client HTTP error in {scope}: {error}")
 
 
 def _client_dc(client) -> Optional[int]:
@@ -627,11 +652,11 @@ async def canonical_media_delivery(request: web.Request):
         client_id, streamer = select_optimal_client(preferred_dc=preferred_dc)
         work_loads[client_id] += 1
 
-        user_key = file_record.get("first_source_chat_id") or request.remote
+        user_key = caller_key(request)
         if not user_streams.acquire(user_key):
             work_loads[client_id] -= 1
             metrics.record_error("rate_limit",
-                                 f"per-user stream cap reached for {user_key}")
+                                 f"per-caller stream cap reached for {user_key}")
             raise web.HTTPTooManyRequests(
                 text=("You already have the maximum number of simultaneous streams. "
                       "Close one and retry."),
@@ -686,7 +711,7 @@ async def canonical_media_delivery(request: web.Request):
         logger.debug(f"Canonical client error: {type(e).__name__} - {e}", exc_info=True)
         raise web.HTTPNotFound(text="Resource not found") from e
     except web.HTTPException as e:
-        logger.warning(f"HTTP exception in canonical stream: {e}")
+        _log_http_exception("canonical stream", e)
         raise
     except Exception as e:
         error_id = secrets.token_hex(6)
@@ -705,10 +730,10 @@ async def media_delivery(request: web.Request):
 
         work_loads[client_id] += 1
 
-        user_key = request.remote
+        user_key = caller_key(request)
         if not user_streams.acquire(user_key):
             work_loads[client_id] -= 1
-            metrics.record_error("rate_limit", f"per-user stream cap reached for {user_key}")
+            metrics.record_error("rate_limit", f"per-caller stream cap reached for {user_key}")
             raise web.HTTPTooManyRequests(
                 text=("You already have the maximum number of simultaneous streams. "
                       "Close one and retry."),
@@ -753,7 +778,7 @@ async def media_delivery(request: web.Request):
         logger.debug(f"Client error: {type(e).__name__} - {e}", exc_info=True)
         raise web.HTTPNotFound(text="Resource not found") from e
     except web.HTTPException as e:
-        logger.warning(f"HTTP exception in media stream: {e}")
+        _log_http_exception("media stream", e)
         raise
     except Exception as e:
         error_id = secrets.token_hex(6)

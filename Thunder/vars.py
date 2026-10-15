@@ -114,7 +114,10 @@ class Var:
     MAX_QUEUE_SIZE: int = int(os.getenv("MAX_QUEUE_SIZE", "100"))
 
     MAX_CONCURRENT_PER_CLIENT: int = int(os.getenv("MAX_CONCURRENT_PER_CLIENT", "16"))
-    MAX_CONCURRENT_PER_USER: int = int(os.getenv("MAX_CONCURRENT_PER_USER", "3"))
+    # Simultaneous streams allowed per caller (browser/player) address.
+    # A player legitimately opens several range requests at once, so keep this
+    # comfortably above one - it exists to stop one host starving everyone.
+    MAX_CONCURRENT_PER_USER: int = int(os.getenv("MAX_CONCURRENT_PER_USER", "8"))
 
     ALERT_ON_STREAM_FAILURES: bool = str_to_bool(os.getenv("ALERT_ON_STREAM_FAILURES", "True"))
     STREAM_FAILURE_ALERT_THRESHOLD: int = int(os.getenv("STREAM_FAILURE_ALERT_THRESHOLD", "5"))

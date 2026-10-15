@@ -172,6 +172,18 @@ class CanonicalRouteStateTest(unittest.IsolatedAsyncioTestCase):
         async with self.client.get(f"/watch/f/{HASH}/sample.mkv") as resp:
             self.assertEqual(resp.status, 410)
 
+    async def test_cap_is_keyed_on_the_caller_not_the_uploader(self):
+        # A popular file must not share one allowance across all its viewers,
+        # which is what a first_source_chat_id key does.
+        self.record = _record(file_size=len(self.data), first_source_chat_id=987654)
+
+        async with self.client.get(f"/f/{HASH}/sample.mkv") as resp:
+            await resp.read()
+
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(sr.user_streams.active(987654), 0)
+        self.assertGreaterEqual(sr.user_streams.active("127.0.0.1"), 0)
+
     async def test_gone_requests_do_not_leak_workload(self):
         self.record = _record(file_size=len(self.data), revoked=True)
         async with self.client.get(f"/f/{HASH}/sample.mkv") as resp:

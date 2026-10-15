@@ -83,9 +83,12 @@ routes, streamer and plugins can all import it):
   `STREAM_FAILURE_ALERT_THRESHOLD` inside `STREAM_FAILURE_ALERT_WINDOW_MINUTES`
   (cooldown 15 min). Disable with `ALERT_ON_STREAM_FAILURES="False"`.
 
-Per-uploader fairness: `MAX_CONCURRENT_PER_USER` (0 disables) caps simultaneous
-streams per uploader (or per caller IP on the legacy `/{id}?hash=` route) and
-answers `429` + `Retry-After`.
+Per-caller fairness: `MAX_CONCURRENT_PER_USER` (0 disables, default 8) caps
+simultaneous streams per **caller address**, resolved by `caller_key()` from the
+last `X-Forwarded-For` entry (the one the proxy added) and falling back to
+`request.remote`. Never key this on the uploader id: one popular file would then
+share a single allowance across all of its viewers. Over-limit callers get `429`
++ `Retry-After`; 4xx states are logged at debug so they do not read as failures.
 
 Links: records carry `expires_at` (from `LINK_TTL_HOURS`, 0 = never) and
 `revoked`. Both `/f/<hash>/<name>` and `/watch/f/<hash>/<name>` answer

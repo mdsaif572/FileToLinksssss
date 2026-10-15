@@ -188,6 +188,41 @@ class ClientSelectionTest(unittest.IsolatedAsyncioTestCase):
             sr.streamers.clear()
 
 
+class CallerKeyTest(unittest.TestCase):
+    def _request(self, headers=None, remote="10.0.0.5"):
+        return types.SimpleNamespace(headers=headers or {}, remote=remote)
+
+    def test_falls_back_to_the_socket_address(self):
+        self.assertEqual(sr.caller_key(self._request()), "10.0.0.5")
+
+    def test_uses_the_last_forwarded_entry(self):
+        # earlier entries are client-supplied and spoofable
+        request = self._request({"X-Forwarded-For": "1.2.3.4, 203.0.113.9"})
+        self.assertEqual(sr.caller_key(request), "203.0.113.9")
+
+    def test_single_forwarded_entry(self):
+        request = self._request({"X-Forwarded-For": "203.0.113.9"})
+        self.assertEqual(sr.caller_key(request), "203.0.113.9")
+
+    def test_empty_forwarded_header_falls_back(self):
+        request = self._request({"X-Forwarded-For": "  "})
+        self.assertEqual(sr.caller_key(request), "10.0.0.5")
+
+    def test_missing_remote(self):
+        self.assertEqual(sr.caller_key(self._request(remote=None)), "unknown")
+
+
+class CallerScopedCapTest(unittest.TestCase):
+    def test_callers_do_not_share_a_bucket(self):
+        limiter = sr.UserStreamLimiter(1)
+        self.assertTrue(limiter.acquire("198.51.100.1"))
+        self.assertFalse(limiter.acquire("198.51.100.1"))
+        self.assertTrue(
+            limiter.acquire("198.51.100.2"),
+            "one viewer must not consume another viewer's allowance"
+        )
+
+
 class FakeDcClient:
     def __init__(self, dc_id):
         self.storage = types.SimpleNamespace(dc_id=dc_id)
