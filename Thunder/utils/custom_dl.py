@@ -54,14 +54,21 @@ class ByteStreamer:
         self.client = client
         self.chat_id = int(Var.BIN_CHANNEL)
 
-    async def get_message(self, message_id: int, *, force_refresh: bool = False) -> Message:
-        """Fetch a BIN_CHANNEL message, with a short per-client cache.
+    async def get_message_with_owner(
+        self, message_id: int, *, force_refresh: bool = False
+    ) -> Tuple[Message, Client]:
+        """Fetch a BIN_CHANNEL message and report which client fetched it.
 
-        The message is always read with the client that is going to stream it,
-        falling back to the primary bot only if that read fails, because the
-        file reference Telegram returns is bound to the session that fetched it.
-        ``force_refresh`` additionally skips the cache, which is what the retry
-        path needs after a stale reference was rejected.
+        A Telegram file reference is only valid for the session that fetched the
+        message, so the caller must stream the returned message *with the
+        returned client*. The read is attempted with the client that asked for
+        it first and falls back to the primary bot, because a secondary client
+        may not be a member of BIN_CHANNEL. The cache is keyed by
+        ``(client, message_id)`` and written under the client that performed the
+        fetch, never under the client that merely asked.
+
+        ``force_refresh`` skips the cache, which is what the retry path needs
+        after a stale reference was rejected.
         """
         now = time.time()
         cache_key = (id(self.client), message_id)
@@ -72,7 +79,8 @@ class ByteStreamer:
                     ts, message = _GLOBAL_MSG_CACHE[cache_key]
                     if now - ts < _MSG_CACHE_TTL:
                         _GLOBAL_MSG_CACHE.move_to_end(cache_key)
-                        return message
+                        # A hit on this key means this very client fetched it.
+                        return message, self.client
                     _GLOBAL_MSG_CACHE.pop(cache_key, None)
 
         fetch_clients = [self.client]
@@ -102,19 +110,23 @@ class ByteStreamer:
 
                 if message and message.media:
                     async with _MSG_LOCK:
-                        # Cache under the client that fetched it, never under the
-                        # client that merely asked for it.
                         _key = (id(fetch_client), message_id)
                         _GLOBAL_MSG_CACHE[_key] = (now, message)
                         _GLOBAL_MSG_CACHE.move_to_end(_key)
                         while len(_GLOBAL_MSG_CACHE) > _MSG_CACHE_MAX_SIZE:
                             _GLOBAL_MSG_CACHE.popitem(last=False)
-                    return message
+                    return message, fetch_client
 
                 last_error = FileNotFound(f"Message {message_id} has no media")
                 break
 
         raise FileNotFound(f"Message {message_id} not found") from last_error
+
+    async def get_message(self, message_id: int, *, force_refresh: bool = False) -> Message:
+        message, _owner = await self.get_message_with_owner(
+            message_id, force_refresh=force_refresh
+        )
+        return message
 
     async def stream_file(
         self,
@@ -146,15 +158,20 @@ class ByteStreamer:
 
         for ref in refs:
             target = None
+            # Whoever fetched the reference, streams it. They differ only when
+            # this client could not read BIN_CHANNEL itself.
+            stream_client = self.client
             force_refresh = False
             retry_count = 0
             while retry_count < max_retries:
                 try:
                     if target is None:
-                        target = (
-                            await self.get_message(ref, force_refresh=force_refresh)
-                            if isinstance(ref, int) else ref
-                        )
+                        if isinstance(ref, int):
+                            target, stream_client = await self.get_message_with_owner(
+                                ref, force_refresh=force_refresh
+                            )
+                        else:
+                            target, stream_client = ref, self.client
                         if (
                             on_fallback_message is not None and
                             fallback_message_id is not None and
@@ -163,7 +180,7 @@ class ByteStreamer:
                         ):
                             await on_fallback_message(target)
 
-                    async for chunk in self.client.stream_media(
+                    async for chunk in stream_client.stream_media(
                         target, offset=current_offset, limit=remaining_chunks
                     ):
                         yield chunk

@@ -146,6 +146,19 @@ class ByteStreamerReferenceTest(unittest.IsolatedAsyncioTestCase):
             "the retry must re-read the message so the reference is refreshed"
         )
 
+    async def test_streams_with_the_client_that_owns_the_reference(self):
+        secondary = FakeClient("secondary", can_read_bin_channel=False)
+        streamer = custom_dl.ByteStreamer(secondary)
+
+        chunks = [chunk async for chunk in streamer.stream_file(5)]
+
+        self.assertEqual(chunks, [CHUNK_OK])
+        self.assertEqual(
+            secondary.stream_runs, 0,
+            "a client that could not read the message must not be asked to stream it"
+        )
+        self.assertEqual(self.primary.stream_runs, 1)
+
     async def test_stream_gives_up_after_bounded_retries(self):
         client = FakeClient("only", fail_reference_times=99)
         streamer = custom_dl.ByteStreamer(client)

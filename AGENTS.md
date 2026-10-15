@@ -86,6 +86,10 @@ they expire. Two rules keep `/f/...` and `/{id}?hash=...` streaming alive:
 - On a `FILE_REFERENCE_*` error, drop the cached message and re-read it with the
   streaming client, then retry the same chunk (`stream_file`). Never treat it as
   a permanent failure on the first attempt.
+- Whoever fetched the reference streams it (`get_message_with_owner` →
+  `stream_client`). Every client in `MULTI_TOKEN*` must still be a member of
+  `BIN_CHANNEL`, otherwise its own read fails, the primary bot's message is used,
+  and the file ends up streaming through the primary bot instead of the pool.
 
 ## Debugging
 
