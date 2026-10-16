@@ -183,7 +183,7 @@ class ByteStreamerReferenceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(secondary.stream_runs, 1)
         self.assertEqual(self.primary.stream_runs, 1)
 
-    async def test_a_stalled_chunk_read_is_retried_instead_of_hanging(self):
+    async def test_a_stalled_chunk_read_is_retried_on_the_other_session(self):
         # The production H15: the response sat silent until the router dropped it.
         client = FakeClient("only", hang_once_at=1)
         streamer = custom_dl.ByteStreamer(client)
@@ -196,7 +196,12 @@ class ByteStreamerReferenceTest(unittest.IsolatedAsyncioTestCase):
             ]
 
         self.assertEqual(chunks, [CHUNK_OK, CHUNK_OK])
-        self.assertEqual(client.stream_runs, 2, "the stalled read should be restarted")
+        self.assertEqual(client.stream_runs, 1)
+        self.assertEqual(
+            self.primary.stream_runs, 1,
+            "the retry belongs on the other session: the one that stalled is "
+            "bound to whatever stalled it"
+        )
 
     async def test_stream_gives_up_after_bounded_retries(self):
         # Both sessions reject the reference - the shape of the production log

@@ -11,7 +11,7 @@ from pyrogram.types import (InlineKeyboardButton, InlineKeyboardMarkup,
 
 from Thunder.bot import StreamBot
 from Thunder.utils.bot_utils import (gen_dc_txt, get_user, log_newusr,
-                                     reply_user_err)
+                                     reply, reply_user_err)
 from Thunder.utils.database import db
 from Thunder.utils.decorators import check_banned
 from Thunder.utils.file_properties import get_fname, get_fsize, parse_fid
@@ -21,7 +21,7 @@ from Thunder.utils.logger import logger
 from Thunder.utils.messages import (
     MSG_ABOUT, MSG_BUTTON_ABOUT, MSG_BUTTON_CLOSE, MSG_BUTTON_GET_HELP,
     MSG_BUTTON_GITHUB, MSG_BUTTON_JOIN_CHANNEL, MSG_BUTTON_VIEW_PROFILE,
-    MSG_COMMUNITY_CHANNEL, MSG_DC_ANON_ERROR, MSG_DC_FILE_ERROR,
+    MSG_COMMUNITY_CHANNEL, MSG_DB_ERROR, MSG_DC_ANON_ERROR, MSG_DC_FILE_ERROR,
     MSG_MY_STATS,
     MSG_DC_FILE_INFO, MSG_DC_INVALID_USAGE, MSG_DC_UNKNOWN,
     MSG_ERROR_USER_INFO, MSG_FILE_TYPE_ANIMATION, MSG_FILE_TYPE_AUDIO,

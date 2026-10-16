@@ -148,6 +148,27 @@ class Var:
     # comfortably above one - it exists to stop one host starving everyone.
     MAX_CONCURRENT_PER_USER: int = int(os.getenv("MAX_CONCURRENT_PER_USER", "8"))
 
+    # How long a single 1 MiB chunk may take before the read counts as stalled.
+    # Keep it at or above 30s: wzgram sleeps `upload.GetFile` FloodWaits of up to
+    # 30s internally, and a shorter timeout cancels the RPC before that wait can
+    # finish - which re-rolls the FloodWait (usually a longer one) instead of
+    # letting the read complete.
+    STREAM_CHUNK_TIMEOUT_SECONDS: float = float(os.getenv("STREAM_CHUNK_TIMEOUT_SECONDS", "30"))
+    # Total time a stream may spend with no data arriving before it gives up.
+    # Must stay below the host's idle-connection window (Heroku router: H15 after
+    # 55s of silence) - the retries are useless once the router has dropped the
+    # client, and a response that goes silent for longer than that is killed
+    # mid-recovery.
+    STREAM_STALL_BUDGET_SECONDS: float = float(os.getenv("STREAM_STALL_BUDGET_SECONDS", "45"))
+    # Budget for uploading the log document on /log. An MTProto upload queues
+    # behind the client's transfer budget while files are streaming, so this has
+    # to cover real streaming load - a 25s cap cancelled the upload while it was
+    # still waiting for a slot.
+    LOG_UPLOAD_TIMEOUT_SECONDS: float = float(os.getenv("LOG_UPLOAD_TIMEOUT_SECONDS", "120"))
+    # Longest FloodWait the log upload is willing to sit out before falling back
+    # to sending the log tail as text.
+    LOG_UPLOAD_FLOODWAIT_CAP_SECONDS: float = float(os.getenv("LOG_UPLOAD_FLOODWAIT_CAP_SECONDS", "60"))
+
     ALERT_ON_STREAM_FAILURES: bool = str_to_bool(os.getenv("ALERT_ON_STREAM_FAILURES", "True"))
     STREAM_FAILURE_ALERT_THRESHOLD: int = int(os.getenv("STREAM_FAILURE_ALERT_THRESHOLD", "5"))
     STREAM_FAILURE_ALERT_WINDOW_MINUTES: int = int(os.getenv("STREAM_FAILURE_ALERT_WINDOW_MINUTES", "5"))

@@ -175,7 +175,10 @@ class FakeFilesCollection:
         self.fail = fail
         self.pipelines = []
 
-    def aggregate(self, pipeline):
+    async def aggregate(self, pipeline):
+        # pymongo's async collections make aggregate() a coroutine. Faking it as
+        # a plain method is what let the real
+        # "'coroutine' object has no attribute 'to_list'" crash ship.
         if self.fail:
             raise RuntimeError("mongo is down")
         self.pipelines.append(pipeline)

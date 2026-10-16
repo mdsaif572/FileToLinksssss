@@ -46,7 +46,10 @@ class Database:
             {"$project": {"_id": "$doc_id"}}
         ]
         keep_ids = []
-        async for doc in self.col.aggregate(pipeline):
+        # pymongo's async API makes aggregate() a coroutine; without the await
+        # this raised "coroutine 'AsyncCollection.aggregate' was never awaited"
+        # and deduplication never ran.
+        async for doc in await self.col.aggregate(pipeline):
             keep_ids.append(doc["_id"])
         if keep_ids:
             result = await self.col.delete_many({"_id": {"$nin": keep_ids}})
@@ -561,7 +564,10 @@ class Database:
         if source_chat_id is None:
             return dict(empty)
         try:
-            cursor = self.files_col.aggregate([
+            # aggregate() is a coroutine on pymongo's async collections, so it
+            # has to be awaited before the cursor can be read - the production
+            # log showed "'coroutine' object has no attribute 'to_list'" here.
+            cursor = await self.files_col.aggregate([
                 {"$match": {"first_source_chat_id": source_chat_id}},
                 {
                     "$group": {

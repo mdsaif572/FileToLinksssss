@@ -11,7 +11,7 @@ from pyrogram.errors import (FileIdInvalid, FileReferenceEmpty,
                              FloodWait)
 from pyrogram.types import Message
 
-from Thunder.server.exceptions import FileNotFound
+from Thunder.server.exceptions import FileNotFound, StreamUnavailable
 from Thunder.utils.file_properties import get_media
 from Thunder.utils.logger import logger
 from Thunder.utils.metrics import metrics
@@ -20,7 +20,18 @@ from Thunder.vars import Var
 # A chunk that never arrives used to hang the response until the gateway killed
 # it (Heroku router: H15 "Idle connection" after 55s, with the client left on a
 # half-delivered stream). Fail the read instead so the retry path can resume.
-CHUNK_READ_TIMEOUT = 20.0
+#
+# Two limits, and they are different questions:
+#   * CHUNK_READ_TIMEOUT bounds a single 1 MiB chunk. It stays at/above the 30s
+#     `upload.GetFile` FloodWait window wzgram sleeps internally, so a read that
+#     is merely deferred is not cancelled in the middle of that wait.
+#   * STREAM_STALL_BUDGET_SECONDS bounds the time a stream may spend with no data
+#     arriving at all, across every retry. It is the one that has to stay under
+#     the host's idle-connection window: after ~55s of silence the router drops
+#     the client, so retrying past that point cannot recover the stream - it only
+#     holds a pool slot and fills the log with a traceback.
+CHUNK_READ_TIMEOUT = float(getattr(Var, "STREAM_CHUNK_TIMEOUT_SECONDS", 30.0))
+STREAM_STALL_BUDGET_SECONDS = float(getattr(Var, "STREAM_STALL_BUDGET_SECONDS", 45.0))
 
 _MSG_CACHE_TTL = 300  # 5 minutes
 _MSG_CACHE_MAX_SIZE = 500
@@ -68,6 +79,20 @@ def client_label(client: Optional[Client]) -> str:
         return "none"
     name = getattr(client, "name", None)
     return f"{type(client).__name__}:{name}" if name else type(client).__name__
+
+
+def describe_error(exc: Optional[BaseException]) -> str:
+    """Name a failure in a way that is never empty.
+
+    ``str(asyncio.TimeoutError())`` is ``""``, which is how the production log
+    ended up with ``Unable to stream file: `` - a traceback that named no cause
+    at all. Always carry the exception class, and the message only when there is
+    one.
+    """
+    if exc is None:
+        return "no readable error (every attempt was deferred by Telegram)"
+    detail = str(exc).strip()
+    return f"{type(exc).__name__}: {detail}" if detail else type(exc).__name__
 
 
 class ByteStreamer:
@@ -176,18 +201,22 @@ class ByteStreamer:
         )
         return message
 
-    async def _read_chunks(self, client, target, offset: int, limit: int):
+    async def _read_chunks(self, client, target, offset: int, limit: int,
+                           timeout: Optional[float] = None):
         """Yield media chunks, but never wait forever for one.
 
         The timeout is what turns a stalled MTProto read into a retryable error
         (``asyncio.TimeoutError`` is handled by the retry branch) instead of a
-        response that sits silent until the router drops it.
+        response that sits silent until the router drops it. The caller passes
+        the smaller of the per-chunk limit and the remaining stall budget, so a
+        retry can never push the response past the host's idle window.
         """
+        read_timeout = float(CHUNK_READ_TIMEOUT) if timeout is None else float(timeout)
         iterator = client.stream_media(target, offset=offset, limit=limit).__aiter__()
         while True:
             try:
                 chunk = await asyncio.wait_for(
-                    iterator.__anext__(), timeout=CHUNK_READ_TIMEOUT
+                    iterator.__anext__(), timeout=read_timeout
                 )
             except StopAsyncIteration:
                 return
@@ -221,6 +250,13 @@ class ByteStreamer:
         remaining_chunks = chunk_limit
         max_retries = 5
         last_error: Exception | None = None
+        attempts = 0
+        # Total time spent with no data arriving. Retrying inside the gateway's
+        # idle window can save a stream; retrying past it cannot.
+        stall_budget = float(STREAM_STALL_BUDGET_SECONDS)
+        silent_for = 0.0
+        last_progress = time.monotonic()
+        stream_client = self.client
 
         for ref in refs:
             target = None
@@ -231,6 +267,9 @@ class ByteStreamer:
             preferred_client: Optional[Client] = None
             retry_count = 0
             while retry_count < max_retries:
+                attempt_timeout = min(
+                    float(CHUNK_READ_TIMEOUT), max(stall_budget - silent_for, 0.05)
+                )
                 try:
                     if target is None:
                         if isinstance(ref, int):
@@ -251,9 +290,11 @@ class ByteStreamer:
                             await on_fallback_message(target)
 
                     async for chunk in self._read_chunks(
-                        stream_client, target, current_offset, remaining_chunks
+                        stream_client, target, current_offset, remaining_chunks,
+                        timeout=attempt_timeout
                     ):
                         yield chunk
+                        last_progress = time.monotonic()
                         current_offset += 1
                         if remaining_chunks > 0:
                             remaining_chunks -= 1
@@ -261,17 +302,89 @@ class ByteStreamer:
                                 return
                     return
                 except FloodWait as e:
-                    logger.warning(f"FloodWait in stream_file: sleeping {e.value}s")
-                    await asyncio.sleep(e.value)
                     retry_count += 1
+                    attempts += 1
+                    last_error = e
+                    silent_for += max(time.monotonic() - last_progress, 0.0)
+                    last_progress = time.monotonic()
+                    wait = max(float(getattr(e, "value", 0) or 0), 0.0)
+                    others = [
+                        candidate for candidate in (self.client, primary_client())
+                        if candidate is not None and candidate is not stream_client
+                    ]
+                    budget_left = max(stall_budget - silent_for, 0.0)
+                    if wait > budget_left or silent_for >= stall_budget:
+                        # Sitting out a wait that does not fit the idle window
+                        # holds the client on a silent response until the router
+                        # drops it - and Telegram hands out longer waits the more
+                        # it is asked. Rotate the session instead of sleeping.
+                        logger.warning(
+                            f"FloodWait {wait:.0f}s does not fit the {budget_left:.1f}s "
+                            f"stall budget for message {media_id} at chunk {current_offset} "
+                            f"(attempt {retry_count}/{max_retries}, "
+                            f"{silent_for:.1f}s without data, "
+                            f"client {client_label(stream_client)})"
+                        )
+                        metrics.record_error(
+                            "reference", f"floodwait {wait:.0f}s", client=client_label(stream_client)
+                        )
+                        if others and silent_for < stall_budget:
+                            preferred_client, force_refresh, target = others[0], True, None
+                            logger.warning(
+                                f"Rotating the stream off {client_label(stream_client)} to "
+                                f"{client_label(others[0])}"
+                            )
+                            await asyncio.sleep(min(0.25 * retry_count, 1.0))
+                            continue
+                        break
+
+                    logger.warning(
+                        f"FloodWait in stream_file: sleeping {wait:.0f}s "
+                        f"(message {media_id}, attempt {retry_count}/{max_retries})"
+                    )
+                    await asyncio.sleep(wait)
+                    silent_for += wait
                 except (ConnectionError, ConnectionResetError, OSError, asyncio.TimeoutError) as e:
                     retry_count += 1
+                    attempts += 1
                     last_error = e
+                    silent_for += max(time.monotonic() - last_progress, 0.0)
+                    last_progress = time.monotonic()
                     logger.warning(
-                        f"Telegram connection reset/timeout in stream_file at chunk {current_offset} "
-                        f"(attempt {retry_count}/{max_retries}): {e}"
+                        f"Telegram read stalled in stream_file at chunk {current_offset} "
+                        f"(attempt {retry_count}/{max_retries}, {silent_for:.1f}s of the "
+                        f"{stall_budget:.0f}s stall budget spent, "
+                        f"{describe_error(e)}, client {client_label(stream_client)})"
                     )
-                    await asyncio.sleep(0.5 * retry_count)
+                    metrics.record_error(
+                        "stall", describe_error(e), client=client_label(stream_client)
+                    )
+                    if silent_for >= stall_budget:
+                        # The router has already dropped (or is about to drop) a
+                        # client that has seen nothing for this long; one more
+                        # retry only keeps a pool slot busy.
+                        logger.warning(
+                            f"Giving up on message {media_id} at chunk {current_offset}: "
+                            f"{silent_for:.1f}s without data (budget {stall_budget:.0f}s)"
+                        )
+                        break
+
+                    # A session that just stalled is the one bound to whatever
+                    # made it stall (a FloodWait sleep, its rate limit). Stream
+                    # the next attempt with the other session so the retry has a
+                    # chance of reading at full speed - a rejected file reference
+                    # is not the only reason to move a stream.
+                    others = [
+                        candidate for candidate in (self.client, primary_client())
+                        if candidate is not None and candidate is not stream_client
+                    ]
+                    if others:
+                        preferred_client, force_refresh, target = others[0], True, None
+                        logger.warning(
+                            f"Rotating the stalled stream off {client_label(stream_client)} "
+                            f"to {client_label(others[0])}"
+                        )
+                    await asyncio.sleep(min(0.25 * retry_count, 1.0))
                 except Exception as e:
                     if _is_file_reference_error(e):
                         # Telegram hands out a file reference that only the
@@ -308,7 +421,20 @@ class ByteStreamer:
                     logger.debug(f"Error streaming media ref {ref}: {e}", exc_info=True)
                     break
 
-        raise FileNotFound(f"Unable to stream file: {last_error}")
+        detail = (
+            f"Unable to stream file: message {media_id} in channel "
+            f"{chat_id or self.chat_id}, {attempts} attempt(s), "
+            f"{silent_for:.1f}s without data (stall budget {stall_budget:.1f}s), "
+            f"last error {describe_error(last_error)}, "
+            f"last client {client_label(stream_client)}"
+        )
+        if stream_client is not self.client:
+            detail += f" (requested via {client_label(self.client)})"
+        metrics.record_error(
+            "stream", detail, client=client_label(stream_client)
+        )
+        logger.warning(detail)
+        raise StreamUnavailable(detail)
 
     def get_file_info_sync(self, message: Message) -> Dict[str, Any]:
         media = get_media(message)

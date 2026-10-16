@@ -105,11 +105,54 @@ Two production symptoms from the router log, both handled in code:
 
 - a stalled MTProto read used to leave the response silent until the gateway
   dropped it (`H15 Idle connection`, client stuck on a half-delivered stream).
-  `CHUNK_READ_TIMEOUT` (20s, `Thunder/utils/custom_dl.py`) turns a silent read
-  into a retryable `asyncio.TimeoutError`, so the same chunk is re-read instead.
+  Two limits now bound it (`Thunder/utils/custom_dl.py`):
+
+  * `CHUNK_READ_TIMEOUT` / `STREAM_CHUNK_TIMEOUT_SECONDS` (30s) is the limit for
+    one 1 MiB chunk. It must stay at or above 30s: wzgram sleeps
+    `upload.GetFile` FloodWaits of up to 30s *inside* the RPC, and a shorter
+    timeout cancels that wait instead of letting it finish - which re-rolls the
+    FloodWait, usually a longer one.
+  * `STREAM_STALL_BUDGET_SECONDS` (45s) is the total silence a stream may
+    accumulate across all retries. It has to stay under the router's 55s idle
+    window: past that the client is gone, so further retries only hold a pool
+    slot. Measured from the last delivered chunk, not from the attempt.
+
+  A stall, or a FloodWait that does not fit the remaining budget, **rotates the
+  stream to the other session** (re-reading the message with that session, since
+  a file reference belongs to the session that fetched it) instead of retrying
+  the session that just stalled or sleeping a wait the client cannot sit through.
+  Giving up raises `StreamUnavailable` with a message that always names the
+  cause, the attempt count, the seconds without data and the client:
+  `str(asyncio.TimeoutError())` is `""`, which is how the log ended up saying
+  `Unable to stream file: ` with no cause at all.
+
+- A load-bearing detail for client selection: streaming all requests through the
+  lowest client id wastes the pool. Telegram's rate limits are per session, so
+  `select_optimal_client` round-robins among the equally least-loaded candidates
+  (capacity gate, per-channel capability and DC preference still apply first).
 - `cleanup_clients()` stops the whole pool with `asyncio.gather` inside a 20s
   budget. Stopping 44 clients one by one exceeded the platform's 30s SIGTERM
   grace period and produced `R12 Exit timeout` + SIGKILL (status 137).
+
+Status codes after the retries are exhausted (`One failure, one status code`):
+
+- `503` + `Retry-After` for a read that failed but the link exists - a stalled
+  read, or a file whose channel no client administers. A player retries, and the
+  retry usually lands on another client.
+- `404` only when the link itself does not resolve (unknown hash, no stored
+  unique id, message without media).
+- If the response body has already started, no status code can help any more:
+  the route counts the failure (that is what feeds the owner alert), logs a
+  warning and **closes the connection**, so the client sees the stream end
+  instead of waiting for a `Content-Length` that will never arrive.
+
+`/log` uploads have their own budget (`LOG_UPLOAD_TIMEOUT_SECONDS`, 120s,
+`Thunder/bot/plugins/admin.py`): an MTProto upload queues behind the transfer
+pipeline the streams are using, so a 25s cap cancelled it while it was still
+waiting for a slot. The retry re-seeks the payload to byte 0 first - `save_file`
+reads a file object from its current position, so a retry without the seek
+uploads a truncated document and reports success. A FloodWait longer than
+`LOG_UPLOAD_FLOODWAIT_CAP_SECONDS` falls back to sending the log tail as text.
 
 Client selection prefers a pool client in the file's own data centre
 (`dc_from_file_id` + `select_optimal_client(preferred_dc=...)`) while still

@@ -1,6 +1,7 @@
 # Thunder/server/stream_routes.py
 
 import asyncio
+import itertools
 import re
 import secrets
 import time
@@ -12,7 +13,7 @@ from aiohttp.client_exceptions import ClientConnectionResetError
 
 from Thunder import __version__, StartTime
 from Thunder.bot import StreamBot, client_channels, multi_clients, work_loads
-from Thunder.server.exceptions import FileNotFound, InvalidHash
+from Thunder.server.exceptions import FileNotFound, InvalidHash, StreamUnavailable
 from Thunder.utils.bot_utils import quote_media_name
 from Thunder.utils.canonical_files import (
     PUBLIC_HASH_LENGTH,
@@ -53,6 +54,10 @@ CORS_HEADERS = {
 }
 
 streamers = {}
+
+# Round-robin cursor for picking among equally-loaded clients, so a pool of idle
+# sessions is actually used instead of always the lowest client id.
+_selection_cursor = itertools.count()
 
 
 class UserStreamLimiter:
@@ -248,7 +253,18 @@ def select_optimal_client(
         if same_dc:
             candidates = same_dc
 
-    client_id = min(candidates, key=lambda x: x[1])[0]
+    # Spread the load instead of pinning every stream to the lowest client id.
+    # Telegram's limits are per session, so a pool only buys throughput if
+    # consecutive streams land on different sessions: `min(..., key=load)` alone
+    # keeps choosing the same idle client until it hits the cap, which is how one
+    # throttled session ended up serving (and stalling) every request while the
+    # rest of the pool sat idle.
+    lowest_load = min(load for _, load in candidates)
+    least_loaded = [(cid, load) for cid, load in candidates if load == lowest_load]
+    if len(least_loaded) == 1:
+        client_id = least_loaded[0][0]
+    else:
+        client_id = least_loaded[next(_selection_cursor) % len(least_loaded)][0]
     return client_id, get_streamer(client_id)
 
 
@@ -406,8 +422,18 @@ async def _serve_media_response(
         # as well double-counts the release and drives this client's load
         # negative, which then defeats the capacity gate in
         # select_optimal_client() and shows up as negative numbers in /status.
-        logger.error(f"Failed to fetch initial chunk for {filename}: {e}", exc_info=True)
+        #
+        # Nothing has been written yet, so this can still be a real status code:
+        # a read that failed after its retries is a temporary upstream problem
+        # (503 + Retry-After, the player retries and usually lands on another
+        # client), not a missing file - a 404 tells a media player to give up.
         metrics.record_error("stream", str(e), client=client_label(streamer.client))
+        if isinstance(e, StreamUnavailable):
+            # stream_file already logged the mechanism (stall, FloodWait, which
+            # client); a traceback here would only repeat it.
+            logger.warning(f"Stream unavailable before the first chunk of {filename}: {e}")
+        else:
+            logger.error(f"Failed to fetch initial chunk for {filename}: {e}", exc_info=True)
         raise web.HTTPServiceUnavailable(
             text="Media stream temporarily unavailable. Please retry shortly.",
             headers={"Retry-After": "2", **CORS_HEADERS}
@@ -419,8 +445,8 @@ async def _serve_media_response(
     )
     await response.prepare(request)
 
+    bytes_sent = 0
     try:
-        bytes_sent = 0
         bytes_to_skip = start % CHUNK_SIZE
 
         if first_chunk is not None:
@@ -490,13 +516,27 @@ async def _serve_media_response(
     ):
         logger.debug(f"Client stream cancelled for {filename}")
         metrics.record_client_disconnect()
+    except StreamUnavailable as e:
+        # The response headers are already on the wire, so no status code can
+        # change the outcome any more. Count the failure (this is what feeds the
+        # owner alert) and end the body - but close the connection, or the client
+        # sits waiting for the Content-Length we promised and never sent.
+        metrics.record_error("stream", str(e), client=client_label(streamer.client))
+        response.force_close()
+        logger.warning(
+            f"Stream aborted after {bytes_sent} of {content_length} bytes for "
+            f"{filename}: {e}"
+        )
     except Exception as e:
         err_str = str(e).lower()
         if "closing transport" in err_str or "connection lost" in err_str or "connection reset" in err_str:
             logger.debug(f"Client transport closed while streaming {filename}")
         else:
-            logger.error(f"Error streaming {filename}: {e}", exc_info=True)
-            raise
+            metrics.record_error("stream", str(e), client=client_label(streamer.client))
+            response.force_close()
+            logger.error(
+                f"Error streaming {filename} after {bytes_sent} of "
+                f"{content_length} bytes: {e}", exc_info=True)
     finally:
         work_loads[client_id] -= 1
 
@@ -745,6 +785,14 @@ async def canonical_media_delivery(request: web.Request):
                     on_fallback_message=persist_refreshed_file_id,
                     chat_id=file_channel
                 )
+            except StreamUnavailable as e:
+                work_loads[client_id] -= 1
+                logger.warning(f"Stalled canonical stream for {secure_hash}: {e}")
+                raise web.HTTPServiceUnavailable(
+                    text=("The file could not be read from Telegram right now. "
+                          "Please retry in a moment."),
+                    headers={"Retry-After": str(OVERLOAD_RETRY_AFTER_SECONDS), **CORS_HEADERS},
+                ) from e
             except (FileNotFound, InvalidHash):
                 work_loads[client_id] -= 1
                 raise
@@ -810,6 +858,14 @@ async def media_delivery(request: web.Request):
                     media_ref=message_id
                 )
 
+            except StreamUnavailable as e:
+                work_loads[client_id] -= 1
+                logger.warning(f"Stalled stream for message {message_id}: {e}")
+                raise web.HTTPServiceUnavailable(
+                    text=("The file could not be read from Telegram right now. "
+                          "Please retry in a moment."),
+                    headers={"Retry-After": str(OVERLOAD_RETRY_AFTER_SECONDS), **CORS_HEADERS},
+                ) from e
             except (FileNotFound, InvalidHash):
                 work_loads[client_id] -= 1
                 raise

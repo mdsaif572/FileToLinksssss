@@ -8,6 +8,7 @@ import subprocess
 import sys
 import time
 from io import BytesIO
+from typing import Optional
 
 import psutil
 from pyrogram import filters
@@ -193,6 +194,68 @@ async def restart_bot(client: Client, message: Message):
         os.execv("/bin/bash", ["bash", "thunder.sh"])
 
 
+# A /log document goes out over MTProto against a client that may be busy
+# streaming files, so the upload queues behind that client's transfer budget.
+# The old 25s wait_for cancelled it while it was still waiting for a slot
+# ("Error sending log file: TimeoutError"), and the FloodWait retry re-sent the
+# payload from wherever the cancelled attempt had left the stream.
+LOG_UPLOAD_TIMEOUT = float(getattr(Var, "LOG_UPLOAD_TIMEOUT_SECONDS", 120.0))
+LOG_UPLOAD_FLOODWAIT_CAP = float(getattr(Var, "LOG_UPLOAD_FLOODWAIT_CAP_SECONDS", 60.0))
+LOG_UPLOAD_MAX_ATTEMPTS = 3
+
+
+async def upload_log_document(message: Message, payload, caption: str, *,
+                              timeout: Optional[float] = None, sleep=None):
+    """Upload the log document, re-sending it from byte 0 on every attempt.
+
+    ``save_file`` reads a file object from its current position, so a retry after
+    a cancelled or partly-read attempt has to seek back to the start - otherwise
+    the retry uploads a truncated (often empty) document and reports success.
+    A FloodWait is Telegram telling us to wait: the sleep is not charged against
+    the upload budget, and a wait longer than the cap gives up so the caller can
+    fall back to the text tail instead of holding the command for minutes.
+    """
+    if sleep is None:
+        sleep = asyncio.sleep
+
+    budget = LOG_UPLOAD_TIMEOUT if timeout is None else float(timeout)
+    deadline = time.monotonic() + budget
+    attempts = 0
+
+    while True:
+        attempts += 1
+        seek = getattr(payload, "seek", None)
+        if callable(seek):
+            seek(0)
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise asyncio.TimeoutError(f"log upload exceeded {budget:.0f}s")
+
+        try:
+            return await asyncio.wait_for(
+                message.reply_document(payload, caption=caption), timeout=remaining
+            )
+        except asyncio.TimeoutError as e:
+            # wait_for raises a bare TimeoutError, whose str() is "" - that is
+            # exactly how the production log ended up saying nothing but
+            # "Error sending log file: TimeoutError".
+            raise asyncio.TimeoutError(
+                f"log upload did not finish within {budget:.0f}s "
+                f"(attempt {attempts}, last wait {remaining:.0f}s)"
+            ) from e
+        except FloodWait as e:
+            wait = max(float(getattr(e, "value", 0) or 0), 0.0)
+            if attempts >= LOG_UPLOAD_MAX_ATTEMPTS or wait > LOG_UPLOAD_FLOODWAIT_CAP:
+                raise
+            logger.warning(
+                f"FloodWait in log upload: waiting {wait:.0f}s before attempt "
+                f"{attempts + 1}/{LOG_UPLOAD_MAX_ATTEMPTS}"
+            )
+            await sleep(wait)
+            deadline += wait          # Telegram's enforced wait is not our budget
+
+
 def read_recent_logs(file_path: str, max_bytes: int = 64 * 1024, max_chars: int = 3500) -> str:
     """Read the tail of the log file up to max_chars, safely and efficiently."""
     try:
@@ -271,17 +334,12 @@ async def send_logs(client: Client, message: Message):
         payload = stream
         caption = MSG_LOG_FILE_TAIL_CAPTION.format(size=humanbytes(len(tail)))
 
-    # Try uploading document with timeout to prevent hanging on MTProto/Telegram connection stalls
+    # Upload the document inside a real budget. An MTProto upload queues behind
+    # the streaming clients' transfer budget, so this waits rather than assuming
+    # the link is dead; a stall that outlasts the budget falls back to the text
+    # tail below.
     try:
-        async def _upload_doc():
-            try:
-                await message.reply_document(payload, caption=caption)
-            except FloodWait as e:
-                logger.debug(f"FloodWait in log file sending, sleeping for {e.value}s")
-                await asyncio.sleep(e.value)
-                await message.reply_document(payload, caption=caption)
-
-        await asyncio.wait_for(_upload_doc(), timeout=25.0)
+        await upload_log_document(message, payload, caption)
 
         # Upload succeeded: clean up status message
         try:
@@ -289,7 +347,7 @@ async def send_logs(client: Client, message: Message):
         except Exception:
             pass
 
-    except (asyncio.TimeoutError, Exception) as e:
+    except Exception as e:
         logger.error(f"Error sending log file: {e}", exc_info=True)
         recent_logs = read_recent_logs(LOG_FILE)
         if recent_logs:
