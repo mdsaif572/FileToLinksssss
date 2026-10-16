@@ -228,31 +228,6 @@ async def send_logs(client: Client, message: Message):
             text=(MSG_LOG_FILE_MISSING if not os.path.exists(LOG_FILE) else MSG_LOG_FILE_EMPTY)
         )
         return
-<<<<<<< Updated upstream
-    
-    # /log sends the tail (fast); /log full sends the whole rotated file.
-    wants_full = len(message.command) > 1 and message.command[1].strip().lower() in ("full", "all")
-    payload = LOG_FILE
-    caption = MSG_LOG_FILE_CAPTION
-
-    if not wants_full:
-        try:
-            tail = read_log_tail()
-        except Exception as e:
-            logger.error(f"Error reading log tail: {e}", exc_info=True)
-            tail = b""
-
-        if not tail:
-            await reply(message, text=MSG_LOG_FILE_EMPTY)
-            return
-
-        stream = BytesIO(tail)
-        stream.name = "bot_tail.txt"
-        payload = stream
-        caption = MSG_LOG_FILE_TAIL_CAPTION.format(size=humanbytes(len(tail)))
-
-=======
-
     # Immediately acknowledge so the user knows the command was received and is processing
     status_msg = await reply(message, text="⏳ **Fetching logs...**")
 
@@ -275,35 +250,46 @@ async def send_logs(client: Client, message: Message):
                 )
             return
 
+    # /log sends the tail (fast); /log full sends the whole rotated file.
+    wants_full = len(args) > 0 and args[0].strip().lower() in ("full", "all")
+    payload = LOG_FILE
+    caption = MSG_LOG_FILE_CAPTION
+
+    if not wants_full:
+        try:
+            tail = read_log_tail()
+        except Exception as e:
+            logger.error(f"Error reading log tail: {e}", exc_info=True)
+            tail = b""
+
+        if not tail:
+            await status_msg.edit_text(MSG_LOG_FILE_EMPTY)
+            return
+
+        stream = BytesIO(tail)
+        stream.name = "bot_tail.txt"
+        payload = stream
+        caption = MSG_LOG_FILE_TAIL_CAPTION.format(size=humanbytes(len(tail)))
+
     # Try uploading document with timeout to prevent hanging on MTProto/Telegram connection stalls
->>>>>>> Stashed changes
     try:
         async def _upload_doc():
             try:
-                await message.reply_document(LOG_FILE, caption=MSG_LOG_FILE_CAPTION)
+                await message.reply_document(payload, caption=caption)
             except FloodWait as e:
                 logger.debug(f"FloodWait in log file sending, sleeping for {e.value}s")
                 await asyncio.sleep(e.value)
-                await message.reply_document(LOG_FILE, caption=MSG_LOG_FILE_CAPTION)
+                await message.reply_document(payload, caption=caption)
 
         await asyncio.wait_for(_upload_doc(), timeout=25.0)
 
         # Upload succeeded: clean up status message
         try:
-<<<<<<< Updated upstream
-            await message.reply_document(payload, caption=caption)
-        except FloodWait as e:
-            logger.debug(f"FloodWait in log file sending, sleeping for {e.value}s")
-            await asyncio.sleep(e.value)
-            await message.reply_document(payload, caption=caption)
-    except Exception as e:
-=======
             await status_msg.delete()
         except Exception:
             pass
 
     except (asyncio.TimeoutError, Exception) as e:
->>>>>>> Stashed changes
         logger.error(f"Error sending log file: {e}", exc_info=True)
         recent_logs = read_recent_logs(LOG_FILE)
         if recent_logs:

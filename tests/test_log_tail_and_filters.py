@@ -62,5 +62,68 @@ class StorageChatFilterTest(unittest.TestCase):
         self.assertGreaterEqual(len(stream_plugin.STORAGE_CHAT_FILTER), 1)
 
 
+class AdminLogCommandTest(unittest.IsolatedAsyncioTestCase):
+    def _write(self, content: bytes) -> str:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".log") as handle:
+            handle.write(content)
+        self.addCleanup(lambda: os.path.exists(handle.name) and os.unlink(handle.name))
+        return handle.name
+
+    def test_read_recent_logs_missing_and_empty(self):
+        from Thunder.bot.plugins.admin import read_recent_logs
+        self.assertEqual(read_recent_logs("/nonexistent/path/bot.txt"), "")
+        empty_path = self._write(b"")
+        self.assertEqual(read_recent_logs(empty_path), "")
+
+    def test_read_recent_logs_reads_content(self):
+        from Thunder.bot.plugins.admin import read_recent_logs
+        content = b"line 1\nline 2\nline 3\n"
+        path = self._write(content)
+        self.assertEqual(read_recent_logs(path), "line 1\nline 2\nline 3")
+
+    async def test_send_logs_text_mode(self):
+        from unittest import mock
+        from Thunder.bot.plugins.admin import send_logs
+
+        path = self._write(b"2026-10-16 info: test log entry\n")
+
+        fake_status_msg = mock.AsyncMock()
+        fake_message = mock.AsyncMock()
+        fake_message.id = 1
+        fake_message.command = ["log", "text"]
+        fake_message.reply_text = mock.AsyncMock(return_value=fake_status_msg)
+
+        with mock.patch("Thunder.bot.plugins.admin.LOG_FILE", path):
+            await send_logs(mock.MagicMock(), fake_message)
+
+        fake_status_msg.edit_text.assert_called_once()
+        self.assertIn("Recent Logs", fake_status_msg.edit_text.call_args[0][0])
+        self.assertIn("test log entry", fake_status_msg.edit_text.call_args[0][0])
+
+    async def test_send_logs_tail_document(self):
+        from unittest import mock
+        from Thunder.bot.plugins.admin import send_logs
+
+        path = self._write(b"2026-10-16 info: line 1\n2026-10-16 info: line 2\n")
+
+        fake_status_msg = mock.AsyncMock()
+        fake_message = mock.AsyncMock()
+        fake_message.id = 1
+        fake_message.command = ["log"]
+        fake_message.reply_text = mock.AsyncMock(return_value=fake_status_msg)
+        fake_message.reply_document = mock.AsyncMock()
+
+        with mock.patch("Thunder.bot.plugins.admin.LOG_FILE", path):
+            await send_logs(mock.MagicMock(), fake_message)
+
+        fake_message.reply_document.assert_called_once()
+        # Document uploaded should be a BytesIO stream with name bot_tail.txt
+        payload = fake_message.reply_document.call_args[0][0]
+        self.assertEqual(payload.name, "bot_tail.txt")
+        self.assertIn(b"line 2", payload.getvalue())
+        fake_status_msg.delete.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()
+
