@@ -193,6 +193,33 @@ async def restart_bot(client: Client, message: Message):
         os.execv("/bin/bash", ["bash", "thunder.sh"])
 
 
+def read_recent_logs(file_path: str, max_bytes: int = 64 * 1024, max_chars: int = 3500) -> str:
+    """Read the tail of the log file up to max_chars, safely and efficiently."""
+    try:
+        if not os.path.exists(file_path):
+            return ""
+        size = os.path.getsize(file_path)
+        if size == 0:
+            return ""
+        read_size = min(size, max_bytes)
+        with open(file_path, "rb") as f:
+            if size > read_size:
+                f.seek(size - read_size)
+            data = f.read(read_size).decode("utf-8", errors="replace")
+        lines = data.splitlines()
+        if size > read_size and len(lines) > 1:
+            lines = lines[1:]
+        result = "\n".join(lines)
+        if len(result) > max_chars:
+            result = result[-max_chars:]
+            nl = result.find("\n")
+            if nl != -1:
+                result = result[nl + 1:]
+        return result
+    except Exception:
+        return ""
+
+
 @StreamBot.on_message(filters.command("log") & owner_filter)
 async def send_logs(client: Client, message: Message):
     if not os.path.exists(LOG_FILE) or os.path.getsize(LOG_FILE) == 0:
@@ -201,6 +228,7 @@ async def send_logs(client: Client, message: Message):
             text=(MSG_LOG_FILE_MISSING if not os.path.exists(LOG_FILE) else MSG_LOG_FILE_EMPTY)
         )
         return
+<<<<<<< Updated upstream
     
     # /log sends the tail (fast); /log full sends the whole rotated file.
     wants_full = len(message.command) > 1 and message.command[1].strip().lower() in ("full", "all")
@@ -223,16 +251,79 @@ async def send_logs(client: Client, message: Message):
         payload = stream
         caption = MSG_LOG_FILE_TAIL_CAPTION.format(size=humanbytes(len(tail)))
 
+=======
+
+    # Immediately acknowledge so the user knows the command was received and is processing
+    status_msg = await reply(message, text="⏳ **Fetching logs...**")
+
+    # If owner specifically requested text/snippet (e.g. /log text or /log 50)
+    args = message.command[1:] if len(message.command) > 1 else []
+    prefer_text = any(arg.lower() in ("text", "tail", "recent", "short") or arg.isdigit() for arg in args)
+
+    if prefer_text:
+        recent_logs = read_recent_logs(LOG_FILE)
+        if recent_logs:
+            try:
+                await status_msg.edit_text(
+                    f"📄 **Recent Logs:**\n\n```text\n{recent_logs}\n```",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            except Exception:
+                await status_msg.edit_text(
+                    f"📄 **Recent Logs:**\n\n<pre>{html.escape(recent_logs)}</pre>",
+                    parse_mode=ParseMode.HTML
+                )
+            return
+
+    # Try uploading document with timeout to prevent hanging on MTProto/Telegram connection stalls
+>>>>>>> Stashed changes
     try:
+        async def _upload_doc():
+            try:
+                await message.reply_document(LOG_FILE, caption=MSG_LOG_FILE_CAPTION)
+            except FloodWait as e:
+                logger.debug(f"FloodWait in log file sending, sleeping for {e.value}s")
+                await asyncio.sleep(e.value)
+                await message.reply_document(LOG_FILE, caption=MSG_LOG_FILE_CAPTION)
+
+        await asyncio.wait_for(_upload_doc(), timeout=25.0)
+
+        # Upload succeeded: clean up status message
         try:
+<<<<<<< Updated upstream
             await message.reply_document(payload, caption=caption)
         except FloodWait as e:
             logger.debug(f"FloodWait in log file sending, sleeping for {e.value}s")
             await asyncio.sleep(e.value)
             await message.reply_document(payload, caption=caption)
     except Exception as e:
+=======
+            await status_msg.delete()
+        except Exception:
+            pass
+
+    except (asyncio.TimeoutError, Exception) as e:
+>>>>>>> Stashed changes
         logger.error(f"Error sending log file: {e}", exc_info=True)
-        await reply(message, text=MSG_ERROR_GENERIC)
+        recent_logs = read_recent_logs(LOG_FILE)
+        if recent_logs:
+            fallback_text = (
+                "⚠️ **Upload timed out/failed. Showing recent logs directly:**\n\n"
+                f"```text\n{recent_logs}\n```"
+            )
+            try:
+                await status_msg.edit_text(fallback_text, parse_mode=ParseMode.MARKDOWN)
+            except Exception:
+                await status_msg.edit_text(
+                    "⚠️ <b>Upload timed out/failed. Showing recent logs directly:</b>\n\n"
+                    f"<pre>{html.escape(recent_logs)}</pre>",
+                    parse_mode=ParseMode.HTML
+                )
+        else:
+            try:
+                await status_msg.edit_text(MSG_ERROR_GENERIC)
+            except Exception:
+                await reply(message, text=MSG_ERROR_GENERIC)
 
 
 @StreamBot.on_message(filters.command("authorize") & owner_filter)
