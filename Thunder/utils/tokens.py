@@ -16,7 +16,7 @@ async def check(user_id: int) -> bool:
         if not getattr(Var, "TOKEN_ENABLED", False):
             logger.debug("Token system disabled - access granted")
             return True
-        if user_id == Var.OWNER_ID:
+        if user_id in getattr(Var, "OWNER_IDS", [Var.OWNER_ID]):
             logger.debug("Owner access granted")
             return True
         current_time = datetime.utcnow()

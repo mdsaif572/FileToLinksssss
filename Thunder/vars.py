@@ -73,7 +73,11 @@ class Var:
     PING_INTERVAL: int = int(os.getenv("PING_INTERVAL", "840"))
     NO_PORT: bool = str_to_bool(os.getenv("NO_PORT", "True"))
 
-    OWNER_ID: int = int(os.getenv("OWNER_ID", "0"))
+    _raw_owner: str = os.getenv("OWNER_ID", "0").strip().strip('"').strip("'")
+    OWNER_ID: int = int(_raw_owner.split()[0]) if _raw_owner and _raw_owner.split()[0].lstrip("-").isdigit() else 0
+    OWNER_IDS: list = [int(x) for x in _raw_owner.split() if x.lstrip("-").isdigit()]
+    if OWNER_ID and OWNER_ID not in OWNER_IDS:
+        OWNER_IDS.append(OWNER_ID)
 
     if not OWNER_ID:
         logger.warning("WARNING: OWNER_ID is not set. No user will be granted owner access.")

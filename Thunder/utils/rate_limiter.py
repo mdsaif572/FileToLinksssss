@@ -90,7 +90,7 @@ class RateLimiter:
         return is_valid
 
     def is_owner(self, user_id: int) -> bool:
-        return user_id == Var.OWNER_ID
+        return user_id in getattr(Var, "OWNER_IDS", [Var.OWNER_ID])
 
     async def is_authorized_user(self, user_id: int) -> bool:
         current_time = time.time()

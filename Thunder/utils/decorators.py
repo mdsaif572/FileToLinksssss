@@ -19,7 +19,7 @@ async def check_banned(client, message: Message):
         if not message.from_user:
             return True
         user_id = message.from_user.id
-        if user_id == Var.OWNER_ID:
+        if user_id in getattr(Var, "OWNER_IDS", [Var.OWNER_ID]):
             return True
 
         ban_details = await db.is_user_banned(user_id)

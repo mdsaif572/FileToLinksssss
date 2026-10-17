@@ -55,7 +55,7 @@ from Thunder.utils.tokens import authorize, deauthorize, list_allowed
 from Thunder.utils.speedtest import run_speedtest
 from Thunder.vars import Var
 
-owner_filter = filters.private & filters.user(Var.OWNER_ID)
+owner_filter = filters.user(Var.OWNER_IDS if getattr(Var, "OWNER_IDS", None) else Var.OWNER_ID)
 
 _MARKDOWN_ESCAPE_TRANS = str.maketrans({
     "\\": "\\\\",
@@ -283,6 +283,59 @@ def read_recent_logs(file_path: str, max_bytes: int = 64 * 1024, max_chars: int 
         return ""
 
 
+async def _send_log_text(status_msg: Message, message: Message, text_content: str, header: str = "📄 **Recent Logs:**\n\n"):
+    if not text_content:
+        try:
+            await status_msg.edit_text(MSG_LOG_FILE_EMPTY)
+        except Exception:
+            await reply(message, text=MSG_LOG_FILE_EMPTY)
+        return
+
+    # Keep snippet safely under Telegram's 4096 character limit
+    budget = 3600
+    snippet = text_content[-budget:] if len(text_content) > budget else text_content
+    nl = snippet.find("\n")
+    if nl != -1 and len(text_content) > budget:
+        snippet = snippet[nl + 1:]
+
+    # Attempt 1: Safe Markdown with backtick sanitization
+    clean_md = snippet.replace("```", "'''")
+    md_text = f"{header}```text\n{clean_md}\n```"
+    try:
+        await status_msg.edit_text(md_text, parse_mode=ParseMode.MARKDOWN)
+        return
+    except Exception:
+        pass
+
+    # Attempt 2: HTML with pre tag
+    escaped = html.escape(snippet)
+    if len(escaped) > 3600:
+        escaped = escaped[-3600:]
+        nl = escaped.find("\n")
+        if nl != -1:
+            escaped = escaped[nl + 1:]
+    html_header = header.replace("**", "<b>").replace("**", "</b>")
+    html_text = f"{html_header}<pre>{escaped}</pre>"
+    try:
+        await status_msg.edit_text(html_text, parse_mode=ParseMode.HTML)
+        return
+    except Exception:
+        pass
+
+    # Attempt 3: Plain text without parse_mode (never fails on parsing or entity limits)
+    plain_header = header.replace("**", "").replace("<b>", "").replace("</b>", "").strip()
+    plain_text = f"{plain_header}\n\n{snippet}"
+    if len(plain_text) > 4000:
+        plain_text = plain_text[-4000:]
+    try:
+        await status_msg.edit_text(plain_text, parse_mode=None)
+    except Exception:
+        try:
+            await reply(message, text=plain_text, parse_mode=None)
+        except Exception as e:
+            logger.error(f"Failed to deliver log text: {e}", exc_info=True)
+
+
 @StreamBot.on_message(filters.command("log") & owner_filter)
 async def send_logs(client: Client, message: Message):
     if not os.path.exists(LOG_FILE) or os.path.getsize(LOG_FILE) == 0:
@@ -300,18 +353,8 @@ async def send_logs(client: Client, message: Message):
 
     if prefer_text:
         recent_logs = read_recent_logs(LOG_FILE)
-        if recent_logs:
-            try:
-                await status_msg.edit_text(
-                    f"📄 **Recent Logs:**\n\n```text\n{recent_logs}\n```",
-                    parse_mode=ParseMode.MARKDOWN
-                )
-            except Exception:
-                await status_msg.edit_text(
-                    f"📄 **Recent Logs:**\n\n<pre>{html.escape(recent_logs)}</pre>",
-                    parse_mode=ParseMode.HTML
-                )
-            return
+        await _send_log_text(status_msg, message, recent_logs, header="📄 **Recent Logs:**\n\n")
+        return
 
     # /log sends the tail (fast); /log full sends the whole rotated file.
     wants_full = len(args) > 0 and args[0].strip().lower() in ("full", "all")
@@ -338,8 +381,9 @@ async def send_logs(client: Client, message: Message):
     # the streaming clients' transfer budget, so this waits rather than assuming
     # the link is dead; a stall that outlasts the budget falls back to the text
     # tail below.
+    upload_timeout = LOG_UPLOAD_TIMEOUT if wants_full else min(LOG_UPLOAD_TIMEOUT, 30.0)
     try:
-        await upload_log_document(message, payload, caption)
+        await upload_log_document(message, payload, caption, timeout=upload_timeout)
 
         # Upload succeeded: clean up status message
         try:
@@ -350,24 +394,10 @@ async def send_logs(client: Client, message: Message):
     except Exception as e:
         logger.error(f"Error sending log file: {e}", exc_info=True)
         recent_logs = read_recent_logs(LOG_FILE)
-        if recent_logs:
-            fallback_text = (
-                "⚠️ **Upload timed out/failed. Showing recent logs directly:**\n\n"
-                f"```text\n{recent_logs}\n```"
-            )
-            try:
-                await status_msg.edit_text(fallback_text, parse_mode=ParseMode.MARKDOWN)
-            except Exception:
-                await status_msg.edit_text(
-                    "⚠️ <b>Upload timed out/failed. Showing recent logs directly:</b>\n\n"
-                    f"<pre>{html.escape(recent_logs)}</pre>",
-                    parse_mode=ParseMode.HTML
-                )
-        else:
-            try:
-                await status_msg.edit_text(MSG_ERROR_GENERIC)
-            except Exception:
-                await reply(message, text=MSG_ERROR_GENERIC)
+        await _send_log_text(
+            status_msg, message, recent_logs,
+            header="⚠️ **Upload timed out/failed. Showing recent logs directly:**\n\n"
+        )
 
 
 @StreamBot.on_message(filters.command("authorize") & owner_filter)
