@@ -602,6 +602,179 @@
             margin: 0 2px;
         }
 
+        /* Audio & Language Selector HUD Styling */
+        .hud-btn.audio-active {
+            color: #38bdf8;
+            background: rgba(56, 189, 248, 0.18);
+            border: 1px solid rgba(56, 189, 248, 0.35);
+        }
+
+        .audio-dialog-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            background: rgba(4, 7, 20, 0.82);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.28s ease, transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .audio-dialog-backdrop.open {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .audio-modal-card {
+            background: linear-gradient(135deg, rgba(17, 24, 39, 0.96), rgba(15, 23, 42, 0.98));
+            border: 1px solid rgba(56, 189, 248, 0.35);
+            border-radius: 20px;
+            max-width: 520px;
+            width: 100%;
+            padding: 26px 24px;
+            box-shadow: 0 24px 64px rgba(0, 0, 0, 0.8), 0 0 32px rgba(56, 189, 248, 0.2);
+            position: relative;
+            transform: scale(0.94);
+            transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .audio-dialog-backdrop.open .audio-modal-card {
+            transform: scale(1);
+        }
+
+        .audio-modal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .audio-modal-title {
+            font-family: 'Syne', sans-serif;
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: #f8fafc;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .audio-modal-title svg {
+            width: 22px;
+            height: 22px;
+            fill: #38bdf8;
+        }
+
+        .audio-modal-close {
+            background: rgba(255, 255, 255, 0.08);
+            border: none;
+            color: #94a3b8;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .audio-modal-close:hover {
+            background: rgba(239, 68, 68, 0.25);
+            color: #f87171;
+        }
+
+        .audio-track-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 18px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .audio-track-item {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            padding: 12px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            color: #e2e8f0;
+            transition: all 0.2s ease;
+            font-size: 0.92rem;
+        }
+
+        .audio-track-item:hover {
+            background: rgba(56, 189, 248, 0.12);
+            border-color: rgba(56, 189, 248, 0.4);
+            transform: translateX(3px);
+        }
+
+        .audio-track-item.active {
+            background: linear-gradient(135deg, rgba(14, 165, 233, 0.25), rgba(99, 102, 241, 0.25));
+            border-color: #38bdf8;
+            color: #fff;
+            font-weight: 600;
+        }
+
+        .audio-track-item.active::after {
+            content: '✓';
+            color: #38bdf8;
+            font-weight: 700;
+            font-size: 1.1rem;
+        }
+
+        .audio-notice-box {
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            border-radius: 12px;
+            padding: 14px 16px;
+            margin-bottom: 16px;
+            color: #fde68a;
+            font-size: 0.82rem;
+            line-height: 1.5;
+        }
+
+        .audio-notice-box strong {
+            color: #fbbf24;
+            display: block;
+            margin-bottom: 4px;
+            font-size: 0.88rem;
+        }
+
+        .audio-launch-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            width: 100%;
+            padding: 12px 18px;
+            background: linear-gradient(135deg, #0ea5e9, #6366f1);
+            color: #fff;
+            font-weight: 700;
+            font-size: 0.92rem;
+            border-radius: 12px;
+            text-decoration: none;
+            box-shadow: 0 4px 18px rgba(14, 165, 233, 0.4);
+            transition: all 0.25s ease;
+            margin-top: 6px;
+        }
+
+        .audio-launch-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 26px rgba(14, 165, 233, 0.6);
+        }
+
         /* Stall & Network Recovery Overlay */
         .stall-shield {
             position: absolute;
@@ -1172,6 +1345,9 @@
                             </div>
 
                             <div class="controls-group">
+                                <button class="hud-btn" id="audioBtn" title="Audio Tracks & Languages / No Sound?">
+                                    <svg viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
+                                </button>
                                 <button class="hud-btn" id="speedBtn" title="Playback Speed">
                                     <span style="font-size: 0.8rem; font-weight: 700;">1.0x</span>
                                 </button>
@@ -1194,6 +1370,32 @@
                     <a href="intent:{{ src|safe }}#Intent;action=android.intent.action.VIEW;type=video/*;package=org.videolan.vlc;end" class="deck-card" style="padding: 10px 18px; border-radius: var(--radius-full);">
                         <span style="font-weight: 700; font-size: 0.85rem; color: #38bdf8;">⚡ Switch to VLC App</span>
                     </a>
+                </div>
+
+                <!-- Multi-Audio & Codec Track Selector Dialog -->
+                <div class="audio-dialog-backdrop" id="audioDialog">
+                    <div class="audio-modal-card">
+                        <div class="audio-modal-header">
+                            <div class="audio-modal-title">
+                                <svg viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
+                                <span>Audio Tracks & Languages</span>
+                            </div>
+                            <button class="audio-modal-close" id="audioModalClose" title="Close">✕</button>
+                        </div>
+
+                        <div class="audio-track-list" id="audioTrackList">
+                            <!-- Populated dynamically via JS -->
+                        </div>
+
+                        <div class="audio-notice-box">
+                            <strong>🔊 No sound or multi-language audio?</strong>
+                            MKV & multi-audio movies often contain Dolby AC3/EAC3/DTS audio streams or secondary regional dubs (Tamil, Telugu, Hindi, etc.) that web browsers cannot decode natively. Click below to play directly in VLC or MX Player with 100% audio & all languages supported!
+                        </div>
+
+                        <a href="intent:{{ src|safe }}#Intent;action=android.intent.action.VIEW;type=video/*;package=org.videolan.vlc;end" class="audio-launch-btn" id="audioModalLaunchBtn">
+                            <span>🚀 Open in VLC Player (All Audio & Subs)</span>
+                        </a>
+                    </div>
                 </div>
             </div>
         </section>
@@ -1342,6 +1544,7 @@
                 <span class="key-badge"><kbd>↑</kbd><kbd>↓</kbd> Volume</span>
                 <span class="key-badge"><kbd>F</kbd> Fullscreen</span>
                 <span class="key-badge"><kbd>M</kbd> Mute</span>
+                <span class="key-badge"><kbd>A</kbd> Audio / Lang</span>
                 <span class="key-badge"><kbd>P</kbd> PiP</span>
                 <span class="key-badge"><kbd>T</kbd> Theater</span>
             </div>
@@ -1380,6 +1583,11 @@
             const streamDurationBadge = document.getElementById('streamDurationBadge');
             const streamResBadge = document.getElementById('streamResBadge');
             const speedBtn = document.getElementById('speedBtn');
+            const audioBtn = document.getElementById('audioBtn');
+            const audioDialog = document.getElementById('audioDialog');
+            const audioTrackList = document.getElementById('audioTrackList');
+            const audioModalClose = document.getElementById('audioModalClose');
+            const audioModalLaunchBtn = document.getElementById('audioModalLaunchBtn');
             const pipBtn = document.getElementById('pipBtn');
             const fullscreenBtn = document.getElementById('fullscreenBtn');
             const fullscreenIcon = document.getElementById('fullscreenIcon');
@@ -1556,6 +1764,62 @@
                 showToast(`Speed: ${spd}x`);
             });
 
+            // Multi-Audio Tracks & Language Switching Logic
+            function updateAudioTracksUI() {
+                if (!audioTrackList) return;
+                audioTrackList.innerHTML = '';
+
+                const tracks = video.audioTracks;
+                if (tracks && tracks.length > 0) {
+                    audioBtn.classList.add('audio-active');
+                    for (let i = 0; i < tracks.length; i++) {
+                        const track = tracks[i];
+                        const item = document.createElement('div');
+                        item.className = 'audio-track-item' + (track.enabled ? ' active' : '');
+                        const lang = (track.language || track.label || `Track ${i + 1}`).toUpperCase();
+                        const kind = track.kind ? ` (${track.kind})` : '';
+                        item.innerHTML = `<span>🎵 ${lang}${kind}</span>`;
+                        item.addEventListener('click', () => {
+                            for (let j = 0; j < tracks.length; j++) {
+                                tracks[j].enabled = (j === i);
+                            }
+                            updateAudioTracksUI();
+                            showToast(`Switched Audio: ${lang}`);
+                        });
+                        audioTrackList.appendChild(item);
+                    }
+                } else {
+                    // Fallback for Chromium / Firefox / browsers where HTML5 audioTracks API is unavailable
+                    const item = document.createElement('div');
+                    item.className = 'audio-track-item active';
+                    item.innerHTML = '<span>🎵 Default Audio Stream (Stereo AAC)</span>';
+                    audioTrackList.appendChild(item);
+                }
+            }
+
+            function openAudioModal() {
+                updateAudioTracksUI();
+                audioDialog.classList.add('open');
+            }
+
+            function closeAudioModal() {
+                audioDialog.classList.remove('open');
+            }
+
+            audioBtn.addEventListener('click', openAudioModal);
+            audioModalClose.addEventListener('click', closeAudioModal);
+            audioDialog.addEventListener('click', function (e) {
+                if (e.target === audioDialog) closeAudioModal();
+            });
+
+            // Automatically check audio tracks on metadata load
+            video.addEventListener('loadedmetadata', function () {
+                if (video.audioTracks && video.audioTracks.length > 1) {
+                    audioBtn.classList.add('audio-active');
+                    showToast(`🔊 ${video.audioTracks.length} Audio Tracks Available`);
+                }
+            });
+
             // PiP
             pipBtn.addEventListener('click', async function () {
                 try {
@@ -1708,6 +1972,14 @@
                     case 'KeyC':
                         e.preventDefault();
                         copyDirectStream();
+                        break;
+                    case 'KeyA':
+                        e.preventDefault();
+                        if (audioDialog.classList.contains('open')) {
+                            closeAudioModal();
+                        } else {
+                            openAudioModal();
+                        }
                         break;
                 }
             });
