@@ -110,6 +110,13 @@ class SourceStatsTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(collection.pipelines), 1)
         self.assertEqual(collection.deleted, [{"_id": {"$nin": ["keep", "older"]}}])
 
+    async def test_get_regular_users_count_awaits_cursor(self):
+        collection = FakeAsyncCollection([{"count": 42}])
+        self.db.col = collection
+
+        count = await self.db.get_regular_users_count()
+        self.assertEqual(count, 42)
+
 
 class MyStatsCommandTest(unittest.IsolatedAsyncioTestCase):
     """``/mystats`` must answer something - it used to die on a NameError."""

@@ -368,6 +368,21 @@ class ClientSpreadingTest(unittest.TestCase):
             "client that is in the wrong DC and full)"
         )
 
+    def test_rotation_candidates_prefer_idle_multi_clients(self):
+        c0 = types.SimpleNamespace(name="c0")
+        c1 = types.SimpleNamespace(name="c1")
+        c2 = types.SimpleNamespace(name="c2")
+        Thunder.bot.multi_clients[0] = c0
+        Thunder.bot.multi_clients[1] = c1
+        Thunder.bot.multi_clients[2] = c2
+        Thunder.bot.work_loads[0] = 5
+        Thunder.bot.work_loads[1] = 0
+        Thunder.bot.work_loads[2] = 2
+
+        # Rotating off c1 should pick least-loaded other client: c2 (load 2) before c0 (load 5)
+        candidates = custom_dl.get_rotation_candidates(c1)
+        self.assertEqual(candidates, [c2, c0])
+
 
 if __name__ == "__main__":
     unittest.main()

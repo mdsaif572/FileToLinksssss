@@ -9,7 +9,14 @@ import re
 import urllib.parse
 
 from pyrogram import Client
-from pyrogram.enums import ButtonStyle, ChatMemberStatus
+from pyrogram.enums import ChatMemberStatus
+try:
+    from pyrogram.enums import ButtonStyle
+except ImportError:
+    class ButtonStyle:
+        PRIMARY = "primary"
+        SUCCESS = "success"
+        DANGER = "danger"
 from pyrogram.errors import FloodWait
 from pyrogram.types import (InlineKeyboardButton, InlineKeyboardMarkup,
                             Message, User)

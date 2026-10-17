@@ -15,3 +15,23 @@ os.environ.setdefault("WZGRAM_UPLOAD_RATE_BOT", "64")
 
 StartTime = time.time()
 __version__ = "2.1.1"
+
+# Polyfill ButtonStyle and InlineKeyboardButton if running on pyrogram/pyrofork without wzgram's ButtonStyle
+try:
+    import inspect
+    import pyrogram.enums
+    from pyrogram.types import InlineKeyboardButton
+    if not hasattr(pyrogram.enums, "ButtonStyle"):
+        class ButtonStyle:
+            PRIMARY = "primary"
+            SUCCESS = "success"
+            DANGER = "danger"
+        pyrogram.enums.ButtonStyle = ButtonStyle
+    if "style" not in inspect.signature(InlineKeyboardButton.__init__).parameters:
+        _orig_ikb_init = InlineKeyboardButton.__init__
+        def _patched_ikb_init(self, *args, **kwargs):
+            kwargs.pop("style", None)
+            return _orig_ikb_init(self, *args, **kwargs)
+        InlineKeyboardButton.__init__ = _patched_ikb_init
+except Exception:
+    pass

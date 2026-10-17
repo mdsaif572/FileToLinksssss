@@ -73,6 +73,48 @@ def primary_client() -> Optional[Client]:
         return None
 
 
+def get_rotation_candidates(
+    current_client: Optional[Client],
+    fallback_client: Optional[Client] = None,
+    chat_id: Optional[int] = None
+) -> list[Client]:
+    """Find other capable clients to rotate a stalled/failed stream to.
+
+    Prefers available pool clients from multi_clients that administer chat_id,
+    preventing every stalled stream from piling onto the primary client.
+    Falls back to (fallback_client, primary_client()) when multi_clients is not
+    in use (e.g. during unit tests).
+    """
+    candidates: list[Client] = []
+    try:
+        from Thunder.bot import client_channels, multi_clients, work_loads
+        if multi_clients:
+            pool = [
+                (cid, cli) for cid, cli in multi_clients.items()
+                if cli is not None and cli is not current_client
+            ]
+            if chat_id is not None and client_channels:
+                capable = [
+                    (cid, cli) for cid, cli in pool
+                    if chat_id in client_channels.get(cid, ()) or not client_channels.get(cid)
+                ]
+                if capable:
+                    pool = capable
+            if pool:
+                pool.sort(key=lambda item: work_loads.get(item[0], 0))
+                candidates = [cli for _cid, cli in pool]
+    except Exception:
+        pass
+
+    if not candidates:
+        primary = primary_client()
+        for cand in (fallback_client, primary):
+            if cand is not None and cand is not current_client and cand not in candidates:
+                candidates.append(cand)
+
+    return candidates
+
+
 def client_label(client: Optional[Client]) -> str:
     """Readable client name for logs - the point is telling sessions apart."""
     if client is None:
@@ -280,7 +322,7 @@ class ByteStreamer:
                                 preferred_client=preferred_client
                             )
                         else:
-                            target, stream_client = ref, self.client
+                            target, stream_client = ref, (preferred_client or self.client)
                         if (
                             on_fallback_message is not None and
                             fallback_message_id is not None and
@@ -308,10 +350,9 @@ class ByteStreamer:
                     silent_for += max(time.monotonic() - last_progress, 0.0)
                     last_progress = time.monotonic()
                     wait = max(float(getattr(e, "value", 0) or 0), 0.0)
-                    others = [
-                        candidate for candidate in (self.client, primary_client())
-                        if candidate is not None and candidate is not stream_client
-                    ]
+                    others = get_rotation_candidates(
+                        stream_client, fallback_client=self.client, chat_id=chat_id
+                    )
                     budget_left = max(stall_budget - silent_for, 0.0)
                     if wait > budget_left or silent_for >= stall_budget:
                         # Sitting out a wait that does not fit the idle window
@@ -374,10 +415,9 @@ class ByteStreamer:
                     # the next attempt with the other session so the retry has a
                     # chance of reading at full speed - a rejected file reference
                     # is not the only reason to move a stream.
-                    others = [
-                        candidate for candidate in (self.client, primary_client())
-                        if candidate is not None and candidate is not stream_client
-                    ]
+                    others = get_rotation_candidates(
+                        stream_client, fallback_client=self.client, chat_id=chat_id
+                    )
                     if others:
                         preferred_client, force_refresh, target = others[0], True, None
                         logger.warning(
@@ -400,10 +440,9 @@ class ByteStreamer:
                         if media_id is not None:
                             invalidate_cached_message(media_id)
 
-                        others = [
-                            candidate for candidate in (self.client, primary_client())
-                            if candidate is not None and candidate is not stream_client
-                        ]
+                        others = get_rotation_candidates(
+                            stream_client, fallback_client=self.client, chat_id=chat_id
+                        )
                         preferred_client = others[0] if others else None
                         force_refresh = True
                         target = None

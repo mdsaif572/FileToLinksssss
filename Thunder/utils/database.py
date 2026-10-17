@@ -151,7 +151,8 @@ class Database:
                 {"$match": {"auth": {"$size": 0}}},
                 {"$count": "count"}
             ]
-            result = await self.col.aggregate(pipeline, allowDiskUse=True).to_list(length=1)
+            cursor = await self.col.aggregate(pipeline, allowDiskUse=True)
+            result = await cursor.to_list(length=1)
             return result[0]["count"] if result else 0
         except Exception as e:
             logger.error(f"Error in get_regular_users_count: {e}", exc_info=True)

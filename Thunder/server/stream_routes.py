@@ -443,10 +443,22 @@ async def _serve_media_response(
         status=206 if range_header else 200,
         headers=headers
     )
-    await response.prepare(request)
 
     bytes_sent = 0
     try:
+        try:
+            await response.prepare(request)
+        except (
+            ConnectionResetError,
+            ConnectionError,
+            BrokenPipeError,
+            ClientConnectionResetError,
+            asyncio.CancelledError,
+        ):
+            logger.debug(f"Client disconnected before headers sent for {filename}")
+            metrics.record_client_disconnect()
+            return response
+
         bytes_to_skip = start % CHUNK_SIZE
 
         if first_chunk is not None:
