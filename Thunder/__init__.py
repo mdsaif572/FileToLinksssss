@@ -16,6 +16,13 @@ os.environ.setdefault("WZGRAM_UPLOAD_RATE_BOT", "64")
 StartTime = time.time()
 __version__ = "2.1.1"
 
+# Fast crypto acceleration: fallback to OpenSSL C-bindings if TgCrypto is missing
+try:
+    from Thunder.utils.crypto_patch import apply_crypto_patch
+    apply_crypto_patch()
+except Exception:
+    pass
+
 # Polyfill ButtonStyle and InlineKeyboardButton if running on pyrogram/pyrofork without wzgram's ButtonStyle
 try:
     import inspect

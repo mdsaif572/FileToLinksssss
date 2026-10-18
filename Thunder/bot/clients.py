@@ -150,7 +150,8 @@ async def initialize_clients():
                 name=str(client_id),
                 no_updates=True,
                 max_concurrent_transmissions=1000,
-                sleep_threshold=Var.SLEEP_THRESHOLD
+                sleep_threshold=Var.SLEEP_THRESHOLD,
+                workers=Var.WORKERS
             )
             try:
                 await client.start()

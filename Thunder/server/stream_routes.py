@@ -177,8 +177,17 @@ def _log_http_exception(scope: str, error: web.HTTPException) -> None:
 
 def _client_dc(client) -> Optional[int]:
     """The Telegram data centre this client is connected to, if known."""
+    if client is None:
+        return None
+    session = getattr(client, "session", None)
+    dc = getattr(session, "dc_id", None)
+    if isinstance(dc, int):
+        return dc
     storage = getattr(client, "storage", None)
-    return getattr(storage, "dc_id", None)
+    dc = getattr(storage, "dc_id", None)
+    if isinstance(dc, int):
+        return dc
+    return None
 
 
 def dc_from_file_id(file_id) -> Optional[int]:
@@ -385,7 +394,8 @@ async def _serve_media_response(
         "Access-Control-Allow-Headers": "Range, Content-Type, *",
         "Access-Control-Expose-Headers": (
             "Content-Length, Content-Range, Content-Disposition"),
-        "X-Content-Type-Options": "nosniff"
+        "X-Content-Type-Options": "nosniff",
+        "X-Accel-Buffering": "no"
     }
 
     if range_header:

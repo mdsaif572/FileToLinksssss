@@ -280,6 +280,16 @@ class DcAwareSelectionTest(unittest.TestCase):
         self.assertIsNone(sr.dc_from_file_id(12345))
         self.assertIsNone(sr.dc_from_file_id("not-a-real-file-id"))
 
+    def test_client_dc_reads_session_dc_id(self):
+        client = types.SimpleNamespace(session=types.SimpleNamespace(dc_id=5))
+        self.assertEqual(sr._client_dc(client), 5)
+
+        # And handles callable storage.dc_id gracefully
+        async def dummy_dc():
+            return 5
+        client_with_method = types.SimpleNamespace(storage=types.SimpleNamespace(dc_id=dummy_dc))
+        self.assertIsNone(sr._client_dc(client_with_method))
+
 
 class BlockingStreamer(FakeStreamer):
     """Keeps the first chunk in flight until the test releases it."""

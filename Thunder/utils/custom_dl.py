@@ -1,6 +1,7 @@
 # Thunder/utils/custom_dl.py
 
 import asyncio
+import itertools
 import time
 from collections import OrderedDict
 from typing import Any, AsyncGenerator, Awaitable, Callable, Dict, Optional, Tuple
@@ -73,6 +74,9 @@ def primary_client() -> Optional[Client]:
         return None
 
 
+_rotation_cursor = itertools.count()
+
+
 def get_rotation_candidates(
     current_client: Optional[Client],
     fallback_client: Optional[Client] = None,
@@ -101,8 +105,14 @@ def get_rotation_candidates(
                 if capable:
                     pool = capable
             if pool:
-                pool.sort(key=lambda item: work_loads.get(item[0], 0))
-                candidates = [cli for _cid, cli in pool]
+                min_load = min(work_loads.get(cid, 0) for cid, _ in pool)
+                least_loaded = [item for item in pool if work_loads.get(item[0], 0) == min_load]
+                rest = [item for item in pool if work_loads.get(item[0], 0) > min_load]
+                rest.sort(key=lambda item: work_loads.get(item[0], 0))
+                if len(least_loaded) > 1:
+                    idx = next(_rotation_cursor) % len(least_loaded)
+                    least_loaded = least_loaded[idx:] + least_loaded[:idx]
+                candidates = [cli for _cid, cli in (least_loaded + rest)]
     except Exception:
         pass
 
@@ -245,24 +255,47 @@ class ByteStreamer:
 
     async def _read_chunks(self, client, target, offset: int, limit: int,
                            timeout: Optional[float] = None):
-        """Yield media chunks, but never wait forever for one.
+        """Yield media chunks with async pre-fetching so HTTP write and Telegram read run concurrently.
 
-        The timeout is what turns a stalled MTProto read into a retryable error
+        The timeout turns a stalled MTProto read into a retryable error
         (``asyncio.TimeoutError`` is handled by the retry branch) instead of a
-        response that sits silent until the router drops it. The caller passes
-        the smaller of the per-chunk limit and the remaining stall budget, so a
-        retry can never push the response past the host's idle window.
+        response that sits silent until the router drops it.
         """
         read_timeout = float(CHUNK_READ_TIMEOUT) if timeout is None else float(timeout)
         iterator = client.stream_media(target, offset=offset, limit=limit).__aiter__()
-        while True:
+        queue: asyncio.Queue = asyncio.Queue(maxsize=2)
+        done = object()
+
+        async def producer():
             try:
-                chunk = await asyncio.wait_for(
-                    iterator.__anext__(), timeout=read_timeout
-                )
-            except StopAsyncIteration:
-                return
-            yield chunk
+                while True:
+                    try:
+                        chunk = await asyncio.wait_for(
+                            iterator.__anext__(), timeout=read_timeout
+                        )
+                    except StopAsyncIteration:
+                        await queue.put((done, None))
+                        break
+                    await queue.put((chunk, None))
+            except (asyncio.CancelledError, Exception) as exc:
+                await queue.put((None, exc))
+
+        producer_task = asyncio.create_task(producer())
+        try:
+            while True:
+                item, exc = await queue.get()
+                if exc is not None:
+                    raise exc
+                if item is done:
+                    return
+                yield item
+        finally:
+            producer_task.cancel()
+            try:
+                await producer_task
+            except (asyncio.CancelledError, Exception):
+                pass
+
 
     async def stream_file(
         self,

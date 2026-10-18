@@ -383,6 +383,24 @@ class ClientSpreadingTest(unittest.TestCase):
         candidates = custom_dl.get_rotation_candidates(c1)
         self.assertEqual(candidates, [c2, c0])
 
+    def test_rotation_candidates_round_robins_equally_least_loaded_clients(self):
+        c0 = types.SimpleNamespace(name="c0")
+        c1 = types.SimpleNamespace(name="c1")
+        c2 = types.SimpleNamespace(name="c2")
+        c3 = types.SimpleNamespace(name="c3")
+        Thunder.bot.multi_clients[0] = c0
+        Thunder.bot.multi_clients[1] = c1
+        Thunder.bot.multi_clients[2] = c2
+        Thunder.bot.multi_clients[3] = c3
+        Thunder.bot.work_loads[0] = 0
+        Thunder.bot.work_loads[1] = 0
+        Thunder.bot.work_loads[2] = 0
+        Thunder.bot.work_loads[3] = 0
+
+        # Consecutive rotations off c0 should rotate the first candidate across c1, c2, c3
+        first_picks = [custom_dl.get_rotation_candidates(c0)[0] for _ in range(3)]
+        self.assertEqual(sorted([p.name for p in first_picks]), ["c1", "c2", "c3"])
+
 
 if __name__ == "__main__":
     unittest.main()
