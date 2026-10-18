@@ -163,7 +163,7 @@ class Var:
     # 55s of silence) - the retries are useless once the router has dropped the
     # client, and a response that goes silent for longer than that is killed
     # mid-recovery.
-    STREAM_STALL_BUDGET_SECONDS: float = float(os.getenv("STREAM_STALL_BUDGET_SECONDS", "45"))
+    STREAM_STALL_BUDGET_SECONDS: float = float(os.getenv("STREAM_STALL_BUDGET_SECONDS", "50"))
     # Budget for uploading the log document on /log. An MTProto upload queues
     # behind the client's transfer budget while files are streaming, so this has
     # to cover real streaming load - a 25s cap cancelled the upload while it was

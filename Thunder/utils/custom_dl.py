@@ -32,7 +32,7 @@ from Thunder.vars import Var
 #     the client, so retrying past that point cannot recover the stream - it only
 #     holds a pool slot and fills the log with a traceback.
 CHUNK_READ_TIMEOUT = float(getattr(Var, "STREAM_CHUNK_TIMEOUT_SECONDS", 30.0))
-STREAM_STALL_BUDGET_SECONDS = float(getattr(Var, "STREAM_STALL_BUDGET_SECONDS", 45.0))
+STREAM_STALL_BUDGET_SECONDS = float(getattr(Var, "STREAM_STALL_BUDGET_SECONDS", 50.0))
 
 _MSG_CACHE_TTL = 300  # 5 minutes
 _MSG_CACHE_MAX_SIZE = 500
@@ -274,11 +274,19 @@ class ByteStreamer:
                             iterator.__anext__(), timeout=read_timeout
                         )
                     except StopAsyncIteration:
-                        await queue.put((done, None))
+                        try:
+                            await queue.put((done, None))
+                        except asyncio.CancelledError:
+                            pass
                         break
                     await queue.put((chunk, None))
-            except (asyncio.CancelledError, Exception) as exc:
-                await queue.put((None, exc))
+            except asyncio.CancelledError:
+                return
+            except Exception as exc:
+                try:
+                    await queue.put((None, exc))
+                except (asyncio.CancelledError, Exception):
+                    pass
 
         producer_task = asyncio.create_task(producer())
         try:
@@ -290,7 +298,8 @@ class ByteStreamer:
                     return
                 yield item
         finally:
-            producer_task.cancel()
+            if not producer_task.done():
+                producer_task.cancel()
             try:
                 await producer_task
             except (asyncio.CancelledError, Exception):

@@ -198,6 +198,17 @@ class StreamStallRecoveryTest(unittest.IsolatedAsyncioTestCase):
             "a dead stream has to feed the owner alert, not vanish into a traceback"
         )
 
+    async def test_producer_cancels_cleanly_when_generator_closes(self):
+        # When a client disconnects mid-stream (H27), _read_chunks is cancelled/closed
+        # while queue is full. Producer must terminate cleanly without deadlock or pending tasks.
+        client = StallClient("primary")
+        streamer = custom_dl.ByteStreamer(client)
+        gen = streamer._read_chunks(client, object(), offset=0, limit=10)
+        first_chunk = await gen.__anext__()
+        self.assertEqual(first_chunk, b"chunk")
+        # Now close generator abruptly, as happens on client abort
+        await gen.aclose()
+
 
 class FakeStreamer:
     """Stands in for ByteStreamer without touching Telegram."""
